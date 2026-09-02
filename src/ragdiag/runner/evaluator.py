@@ -2,6 +2,7 @@
 
 import time
 
+from ragdiag.judges.base import Judge
 from ragdiag.metrics.retrieval import compute_retrieval_metrics
 from ragdiag.models.chunk import RetrievedChunk
 from ragdiag.models.dataset import GoldenDataset
@@ -16,17 +17,19 @@ class Evaluator:
     Executes each query sample sequentially, records retrieval and generation
     latencies in milliseconds, captures raw evidence (chunks and answers),
     calculates deterministic retrieval metrics (Precision@K, Recall@K, Reciprocal Rank),
-    and isolates errors on a per-sample basis so that individual query failures
-    never abort the overall evaluation run.
+    optionally invokes a semantic LLM judge, and isolates errors on a per-sample
+    basis so that individual query failures never abort the overall evaluation run.
     """
 
-    def __init__(self, k: int = 5) -> None:
+    def __init__(self, k: int = 5, judge: Judge | None = None) -> None:
         """Initialize the Evaluator.
 
         Args:
             k: The rank depth cutoff K for retrieval metrics (default: 5).
+            judge: Optional `Judge` instance for semantic evaluation (default: None).
         """
         self.k = k
+        self.judge = judge
 
     def evaluate(
         self,
@@ -155,6 +158,33 @@ class Evaluator:
             "reciprocal_rank": retrieval_metrics.reciprocal_rank,
         }
 
+        latency: dict[str, float] = {
+            "retrieval_ms": round(retrieval_ms, 3),
+            "generation_ms": round(generation_ms, 3),
+            "total_ms": round(total_ms, 3),
+        }
+
+        judge_error: str | None = None
+        if self.judge is not None:
+            judge_start = time.perf_counter()
+            try:
+                judge_result = self.judge.evaluate(
+                    query=sample.query,
+                    expected_answer=sample.expected_answer,
+                    generated_answer=generated_answer,
+                    context=retrieved_chunks,
+                )
+                judge_ms = (time.perf_counter() - judge_start) * 1000.0
+                latency["judge_ms"] = round(judge_ms, 3)
+                metrics["answer_correct"] = judge_result.answer_correct
+                metrics["grounded"] = judge_result.grounded
+                metrics["judge_confidence"] = judge_result.confidence
+                metrics["judge_reason"] = judge_result.reason
+            except Exception as exc:
+                judge_ms = (time.perf_counter() - judge_start) * 1000.0
+                latency["judge_ms"] = round(judge_ms, 3)
+                judge_error = f"judge failed: {type(exc).__name__}: {exc}"
+
         return EvaluationResult(
             query_id=sample.id,
             query=sample.query,
@@ -163,12 +193,9 @@ class Evaluator:
             generated_answer=generated_answer,
             metrics=metrics,
             diagnosis={},
-            latency={
-                "retrieval_ms": round(retrieval_ms, 3),
-                "generation_ms": round(generation_ms, 3),
-                "total_ms": round(total_ms, 3),
-            },
+            latency=latency,
             status="completed",
             error=None,
             query_type=query_type_val,
+            judge_error=judge_error,
         )

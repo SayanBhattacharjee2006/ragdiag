@@ -15,11 +15,11 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 - Did the generator hallucinate despite having the necessary context?
 - Where is the latency bottleneck occurring?
 
-**RAGDiag** is designed to solve this problem by executing evaluation datasets against custom RAG pipelines, computing precision/recall/latency metrics, categorizing structured failure modes, and facilitating configuration comparisons.
+**RAGDiag** solves this problem by executing evaluation datasets against custom RAG pipelines, computing deterministic retrieval metrics, evaluating semantic answer correctness and context groundedness via an isolated LLM judge, and categorizing structured failure modes.
 
 > [!NOTE]
 > **Status: Under Active Development.**
-> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, and deterministic retrieval metrics & latency analysis (Phase 4). LLM-as-a-judge (groundedness, answer correctness) and diagnostic components will be delivered in subsequent phases.
+> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, deterministic retrieval metrics & latency analysis, and the provider-independent LLM Judge system (Phase 5). Root-cause diagnosis and multi-pipeline comparison will be delivered in subsequent phases.
 
 ---
 
@@ -42,8 +42,9 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 │   1. Golden Dataset: Validated queries + ground truth       │
 │   2. Execution Engine: Evaluator orchestrates queries       │
 │   3. Metrics Layer: Precision@K, Recall@K, MRR, Latency     │
-│   4. Root-Cause Diagnosis: Structured Attribution (Upcoming)│
-│   5. Output Models: EvaluationResult, AggregateReport       │
+│   4. LLM Judge: Semantic Answer Correctness & Groundedness  │
+│   5. Root-Cause Diagnosis: Structured Attribution (Upcoming)│
+│   6. Output Models: EvaluationResult, AggregateReport       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -161,16 +162,49 @@ RAGDiag calculates deterministic, framework-agnostic retrieval quality metrics a
 
 ---
 
+## LLM Judge: Answer Correctness & Groundedness
+
+RAGDiag includes an isolated, provider-independent LLM Judge system that evaluates generation quality on two strictly separated dimensions:
+
+### Semantic Dimensions
+
+1. **Answer Correctness (`answer_correct: bool`)**:
+   - Compares the synthesized answer against the ground-truth `expected_answer`.
+   - Checks semantic equivalence rather than lexical string matching.
+   - Evaluates whether the user's question was factually and accurately answered.
+
+2. **Groundedness (`grounded: bool`)**:
+   - Evaluates whether claims made in the generated answer are strictly supported by the **retrieved context chunks**.
+   - The retrieved chunks are the *sole* evidence source. The expected answer is *never* used as evidence for groundedness.
+   - Identifies hallucinations where an answer sounds plausible or matches the expected answer but was fabricated without evidence in the retrieved context.
+
+### Structured Output Enforcement
+
+The judge uses model-level JSON schema enforcement (`client.beta.chat.completions.parse`) guaranteeing outputs conform to `JudgeResult`:
+- `answer_correct: bool`
+- `grounded: bool`
+- `confidence: float` (0.0 to 1.0)
+- `reason: str`
+
+### Execution vs. Judge Failure Isolation
+
+A judge failure (network timeout, rate limit, authentication error) does **not** fail the pipeline execution. The query remains `status="completed"`, deterministic retrieval metrics are preserved, and `judge_error` records the incident.
+
+---
+
 ## Evaluation Execution Engine
 
 The `Evaluator` runs a pipeline against a `GoldenDataset`:
 1. **Retrieval**: Executes `pipeline.retrieve(query)`, validates `list[RetrievedChunk]` output, and records retrieval latency (`retrieval_ms`).
 2. **Generation**: If retrieval succeeds, executes `pipeline.generate(query, chunks)`, validates string output, and records generation latency (`generation_ms`).
 3. **Metric Calculation**: Computes per-query retrieval metrics (`precision_at_5`, `recall_at_5`, `reciprocal_rank`).
-4. **Error Isolation**: Catches exceptions per query without aborting subsequent queries.
-5. **Evidence Capture**: Retains retrieved chunks, answers, status (`completed` / `failed`), errors, and latency breakdowns in `EvaluationResult`.
+4. **Semantic Evaluation (Optional)**: If a `Judge` is configured, evaluates semantic correctness and groundedness, recording `judge_ms`.
+5. **Error Isolation**: Catches exceptions per query without aborting subsequent queries.
+6. **Evidence Capture**: Retains retrieved chunks, answers, status (`completed` / `failed`), errors, and latency breakdowns in `EvaluationResult`.
 
 ### Running Evaluation via Python API
+
+#### 1. Deterministic Evaluation (No API Key Required)
 
 ```python
 from ragdiag import Evaluator, aggregate_metrics
@@ -183,12 +217,33 @@ dataset = load_dataset("examples/basic_dataset.json")
 evaluator = Evaluator(k=5)
 results = evaluator.evaluate(pipeline, dataset)
 
-# Aggregate report
 report = aggregate_metrics(results, k=5)
 print(f"Precision@5: {report.mean_precision_at_k:.2f}")
 print(f"Recall@5:    {report.mean_recall_at_k:.2f}")
 print(f"MRR:         {report.mrr:.2f}")
-print(f"P50 Latency: {report.retrieval_latency.p50_ms:.2f} ms")
+```
+
+#### 2. Evaluation with OpenAI Judge
+
+```python
+import os
+from ragdiag import Evaluator, OpenAIJudge, aggregate_metrics
+from ragdiag.dataset import load_dataset
+from ragdiag.pipeline import load_pipeline
+
+# Ensure OPENAI_API_KEY is set
+judge = OpenAIJudge(model="gpt-4o-mini")
+
+evaluator = Evaluator(k=5, judge=judge)
+results = evaluator.evaluate(
+    pipeline=load_pipeline("examples/basic_pipeline.py"),
+    dataset=load_dataset("examples/basic_dataset.json"),
+)
+
+report = aggregate_metrics(results, k=5)
+print(f"Answer Correctness: {report.answer_correctness_rate:.2f}")
+print(f"Groundedness:       {report.groundedness_rate:.2f}")
+print(f"Mean Confidence:    {report.mean_judge_confidence:.2f}")
 ```
 
 ---
@@ -216,7 +271,9 @@ Output:
 +-----------------------------------------------------------------------------+
 ```
 
-### 2. Run Pipeline Evaluation
+### 2. Run Pipeline Evaluation (Deterministic / Offline)
+
+By default, evaluation runs completely offline without network calls or API keys:
 
 ```bash
 uv run ragdiag run --pipeline examples/basic_pipeline.py --dataset examples/basic_dataset.json
@@ -243,13 +300,58 @@ MRR:          0.87
 Retrieval Latency
 ------------------------
 Mean:   0.01 ms
-P50:    0.00 ms
+P50:    0.01 ms
 P95:    0.01 ms
-P99:    0.01 ms
+P99:    0.02 ms
 
 Completed:  5
 Failed:     0
 Total time: 0.00s
+```
+
+### 3. Run Evaluation with LLM Judge
+
+To enable semantic answer correctness and groundedness evaluation:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+uv run ragdiag run --pipeline examples/basic_pipeline.py --dataset examples/basic_dataset.json --judge openai --model gpt-4o-mini
+```
+
+Output:
+```text
+RAGDiag
+------------------------
+Pipeline: basic_pipeline
+Dataset:  basic_dataset
+Queries:  5
+
+Running evaluation...
+
+Evaluation complete.
+
+Retrieval Metrics
+------------------------
+Precision@5:  0.90
+Recall@5:     1.00
+MRR:          0.87
+
+Semantic Metrics (Judge: openai)
+------------------------
+Answer correctness: 1.00
+Groundedness:       1.00
+Judge confidence:   0.95
+
+Retrieval Latency
+------------------------
+Mean:   0.01 ms
+P50:    0.01 ms
+P95:    0.01 ms
+P99:    0.02 ms
+
+Completed:  5
+Failed:     0
+Total time: 1.25s
 ```
 
 ---
@@ -291,6 +393,6 @@ uv run ruff format --check .
 - [x] **Phase 2: Golden Dataset System** (JSON schema, QueryType taxonomy, loader, validator, CLI validate command)
 - [x] **Phase 3: Evaluation Execution Engine** (Pipeline dynamic loader, Evaluator lifecycle, latency tracking, error isolation, CLI run command)
 - [x] **Phase 4: Retrieval Metrics & Latency Analysis** (Precision@K, Recall@K, Reciprocal Rank, MRR, percentile latency statistics, aggregate report)
-- [ ] **Phase 5: LLM Judge** (Groundedness and answer correctness scoring)
+- [x] **Phase 5: LLM Judge** (Semantic answer correctness and context groundedness using structured outputs, error isolation, provider decoupling)
 - [ ] **Phase 6: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes)
 - [ ] **Phase 7: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)

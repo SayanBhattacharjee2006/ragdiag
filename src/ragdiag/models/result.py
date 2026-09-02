@@ -32,3 +32,4 @@ class EvaluationResult(BaseModel):
     status: str = "completed"
     error: str | None = None
     query_type: str | None = None
+    judge_error: str | None = None

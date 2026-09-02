@@ -63,3 +63,9 @@ class AggregateEvaluationReport(BaseModel):
     mrr: float = 0.0
     k: int = 5
     retrieval_latency: LatencySummary = Field(default_factory=LatencySummary)
+    judged_queries: int = 0
+    judge_failures: int = 0
+    answer_correctness_rate: float | None = None
+    groundedness_rate: float | None = None
+    mean_judge_confidence: float | None = None
+    judge_latency: LatencySummary | None = None

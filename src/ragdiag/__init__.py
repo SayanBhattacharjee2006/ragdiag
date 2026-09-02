@@ -1,5 +1,6 @@
 """RAGDiag: RAG evaluation and root-cause diagnosis SDK/CLI."""
 
+from ragdiag.judges import Judge, JudgeResult, OpenAIJudge
 from ragdiag.metrics import (
     aggregate_metrics,
     mean_reciprocal_rank,
@@ -20,6 +21,9 @@ __all__ = [
     "EvaluationResult",
     "Evaluator",
     "GoldenDataset",
+    "Judge",
+    "JudgeResult",
+    "OpenAIJudge",
     "Pipeline",
     "QuerySample",
     "QueryType",

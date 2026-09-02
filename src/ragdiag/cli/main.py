@@ -1,5 +1,6 @@
 """CLI interface for RAGDiag."""
 
+import os
 import sys
 import time
 from typing import Annotated
@@ -138,9 +139,54 @@ def run(
             help="Path to golden evaluation dataset JSON file.",
         ),
     ],
+    judge: Annotated[
+        str | None,
+        typer.Option(
+            "--judge",
+            "-j",
+            help="LLM judge provider (e.g. 'openai').",
+        ),
+    ] = None,
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Model identifier for the LLM judge.",
+        ),
+    ] = "gpt-4o-mini",
 ) -> None:
     """Run RAG evaluation against a pipeline and dataset."""
     c = get_console()
+
+    judge_instance = None
+    if judge is not None:
+        judge_norm = judge.strip().lower()
+        if judge_norm == "openai":
+            if not os.environ.get("OPENAI_API_KEY"):
+                c.print(
+                    Panel(
+                        "[bold red]OpenAI API Key Missing[/bold red]\n\n"
+                        "To evaluate with the OpenAI judge, set the [bold]OPENAI_API_KEY[/bold] "
+                        "environment variable or run without '--judge'.",
+                        title="[bold red]Authentication Error[/bold red]",
+                        border_style="red",
+                    )
+                )
+                raise typer.Exit(code=1)
+            from ragdiag.judges.openai import OpenAIJudge
+
+            judge_instance = OpenAIJudge(model=model)
+        else:
+            c.print(
+                Panel(
+                    f"[bold red]Unsupported Judge Provider[/bold red]\n\n"
+                    f"Provider '{judge}' is not supported. Supported providers: 'openai'.",
+                    title="[bold red]Configuration Error[/bold red]",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(code=1)
     try:
         loaded_pipeline = load_pipeline(pipeline)
     except PipelineError as exc:
@@ -172,7 +218,7 @@ def run(
     c.print(f"Queries:  [bold]{len(loaded_dataset.samples)}[/bold]\n")
     c.print("[dim]Running evaluation...[/dim]\n")
 
-    evaluator = Evaluator()
+    evaluator = Evaluator(k=5, judge=judge_instance)
     start_time = time.perf_counter()
     results = evaluator.evaluate(loaded_pipeline, loaded_dataset)
     total_elapsed = time.perf_counter() - start_time
@@ -185,6 +231,22 @@ def run(
     c.print(f"Precision@{report.k}:  {report.mean_precision_at_k:.2f}")
     c.print(f"Recall@{report.k}:     {report.mean_recall_at_k:.2f}")
     c.print(f"MRR:          {report.mrr:.2f}\n")
+
+    if report.judged_queries > 0 or report.judge_failures > 0:
+        judge_name = judge or "llm"
+        c.print(f"[bold]Semantic Metrics (Judge: {judge_name})[/bold]")
+        c.print("-" * 24)
+        c_val = (
+            report.answer_correctness_rate if report.answer_correctness_rate is not None else 0.0
+        )
+        g_val = report.groundedness_rate if report.groundedness_rate is not None else 0.0
+        c.print(f"Answer correctness: {c_val:.2f}")
+        c.print(f"Groundedness:       {g_val:.2f}")
+        if report.mean_judge_confidence is not None:
+            c.print(f"Judge confidence:   {report.mean_judge_confidence:.2f}")
+        if report.judge_failures > 0:
+            c.print(f"Judge failures:     [red]{report.judge_failures}[/red]")
+        c.print()
 
     c.print("[bold]Retrieval Latency[/bold]")
     c.print("-" * 24)

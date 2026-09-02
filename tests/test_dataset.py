@@ -399,3 +399,56 @@ def test_cli_run_missing_pipeline() -> None:
     )
     assert result.exit_code != 0
     assert "Pipeline Load Failed" in result.output
+
+
+def test_cli_run_without_judge_has_no_semantic_metrics() -> None:
+    """Verify default run without --judge does NOT include semantic metrics."""
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--pipeline",
+            "examples/basic_pipeline.py",
+            "--dataset",
+            "examples/basic_dataset.json",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Semantic Metrics" not in result.output
+
+
+def test_cli_run_openai_judge_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify requesting --judge openai with missing API key exits cleanly with error message."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--pipeline",
+            "examples/basic_pipeline.py",
+            "--dataset",
+            "examples/basic_dataset.json",
+            "--judge",
+            "openai",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "OpenAI API Key Missing" in result.output
+
+
+def test_cli_run_unsupported_judge() -> None:
+    """Verify requesting unsupported judge provider exits cleanly with error message."""
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--pipeline",
+            "examples/basic_pipeline.py",
+            "--dataset",
+            "examples/basic_dataset.json",
+            "--judge",
+            "unknown_provider",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Unsupported Judge Provider" in result.output

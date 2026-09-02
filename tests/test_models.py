@@ -6,6 +6,9 @@ from pydantic import ValidationError
 from ragdiag import (
     EvaluationResult,
     GoldenDataset,
+    Judge,
+    JudgeResult,
+    OpenAIJudge,
     Pipeline,
     QuerySample,
     QueryType,
@@ -28,6 +31,9 @@ def test_public_imports() -> None:
     assert EvaluationResult is not None
     assert GoldenDataset is not None
     assert QueryType is not None
+    assert Judge is not None
+    assert JudgeResult is not None
+    assert OpenAIJudge is not None
     assert precision_at_k is not None
     assert recall_at_k is not None
     assert reciprocal_rank is not None

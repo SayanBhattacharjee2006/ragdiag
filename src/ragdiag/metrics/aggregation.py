@@ -61,6 +61,13 @@ def aggregate_metrics(
     rrs: list[float] = []
     retrieval_latencies: list[float] = []
 
+    judged_queries = 0
+    judge_failures = 0
+    correct_count = 0
+    grounded_count = 0
+    confidences: list[float] = []
+    judge_latencies: list[float] = []
+
     p_key = f"precision_at_{k}"
     r_key = f"recall_at_{k}"
 
@@ -90,10 +97,33 @@ def aggregate_metrics(
         if "retrieval_ms" in r.latency:
             retrieval_latencies.append(float(r.latency["retrieval_ms"]))
 
+        # Semantic judge metrics
+        if r.judge_error is not None:
+            judge_failures += 1
+            if "judge_ms" in r.latency:
+                judge_latencies.append(float(r.latency["judge_ms"]))
+        elif "answer_correct" in r.metrics:
+            judged_queries += 1
+            if r.metrics.get("answer_correct") is True:
+                correct_count += 1
+            if r.metrics.get("grounded") is True:
+                grounded_count += 1
+            if "judge_confidence" in r.metrics and isinstance(
+                r.metrics["judge_confidence"], (int, float)
+            ):
+                confidences.append(float(r.metrics["judge_confidence"]))
+            if "judge_ms" in r.latency:
+                judge_latencies.append(float(r.latency["judge_ms"]))
+
     mean_prec = sum(precisions) / len(precisions) if precisions else 0.0
     mean_rec = sum(recalls) / len(recalls) if recalls else 0.0
     mrr_val = mean_reciprocal_rank(rrs)
     latency_summary = calculate_latency_summary(retrieval_latencies)
+
+    correctness_rate = (correct_count / judged_queries) if judged_queries > 0 else None
+    grounded_rate = (grounded_count / judged_queries) if judged_queries > 0 else None
+    mean_conf = (sum(confidences) / len(confidences)) if confidences else None
+    judge_latency_summary = calculate_latency_summary(judge_latencies) if judge_latencies else None
 
     return AggregateEvaluationReport(
         total_queries=total,
@@ -104,4 +134,10 @@ def aggregate_metrics(
         mrr=mrr_val,
         k=k,
         retrieval_latency=latency_summary,
+        judged_queries=judged_queries,
+        judge_failures=judge_failures,
+        answer_correctness_rate=correctness_rate,
+        groundedness_rate=grounded_rate,
+        mean_judge_confidence=mean_conf,
+        judge_latency=judge_latency_summary,
     )
