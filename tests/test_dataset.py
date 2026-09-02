@@ -361,3 +361,31 @@ def test_cli_validate_failure_on_invalid_file(tmp_path: Path) -> None:
     result = runner.invoke(app, ["validate", "--dataset", str(invalid_file)])
     assert result.exit_code != 0
     assert "Validation Failed" in result.output
+
+
+def test_cli_run_success() -> None:
+    """Verify CLI run command executes basic_pipeline against basic_dataset."""
+    pipeline_file = "examples/basic_pipeline.py"
+    dataset_file = "examples/basic_dataset.json"
+
+    result = runner.invoke(
+        app,
+        ["run", "--pipeline", pipeline_file, "--dataset", dataset_file],
+    )
+    assert result.exit_code == 0
+    assert "Pipeline: basic_pipeline" in result.output
+    assert "Dataset:  basic_dataset" in result.output
+    assert "Queries:  5" in result.output
+    assert "Evaluation complete." in result.output
+    assert "Completed:  5" in result.output
+    assert "Failed:     0" in result.output
+
+
+def test_cli_run_missing_pipeline() -> None:
+    """Verify CLI run command handles missing pipeline file gracefully."""
+    result = runner.invoke(
+        app,
+        ["run", "--pipeline", "non_existent.py", "--dataset", "examples/basic_dataset.json"],
+    )
+    assert result.exit_code != 0
+    assert "Pipeline Load Failed" in result.output

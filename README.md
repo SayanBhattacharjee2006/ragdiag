@@ -19,7 +19,7 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 
 > [!NOTE]
 > **Status: Under Active Development.**
-> This repository contains the project foundation, domain models, pipeline adapter contract, and the validated golden dataset system. The evaluation engine, metrics calculation, LLM judge, and diagnostic components will be delivered in subsequent phases.
+> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, and the evaluation execution engine (Phase 3). Quantitative evaluation metrics, LLM judge, and diagnostic components will be delivered in subsequent phases.
 
 ---
 
@@ -32,6 +32,7 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 │   class MyPipeline(ragdiag.Pipeline):                       │
 │       def retrieve(query) -> list[RetrievedChunk]           │
 │       def generate(query, chunks) -> str                    │
+│   pipeline = MyPipeline()                                   │
 └──────────────────────────────┬──────────────────────────────┘
                                │ Adapter Contract
                                ▼
@@ -39,7 +40,7 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 │                           RAGDiag                           │
 │                                                             │
 │   1. Golden Dataset: Validated queries + ground truth       │
-│   2. Execution Harness: QuerySample -> Pipeline (Upcoming)  │
+│   2. Execution Engine: Evaluator orchestrates queries       │
 │   3. Metrics Calculation: Retrieval & Generation (Upcoming) │
 │   4. Root-Cause Diagnosis: Structured Attribution (Upcoming)│
 │   5. Output Models: EvaluationResult                        │
@@ -47,6 +48,45 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 ```
 
 The design maintains strict decoupling between the developer's underlying RAG framework (LangChain, LlamaIndex, custom vector stores, etc.) and RAGDiag's evaluation harness through normalized domain abstractions (`RetrievedChunk`, `QuerySample`, `GoldenDataset`, `EvaluationResult`).
+
+---
+
+## Pipeline Adapter Interface
+
+Developers adapt their RAG application by implementing the `ragdiag.Pipeline` contract in a standalone Python file.
+
+### Adapter File Convention
+
+The adapter file must define a top-level instance named `pipeline`:
+
+```python
+# my_pipeline.py
+from ragdiag import Pipeline, RetrievedChunk
+
+class MyCustomPipeline(Pipeline):
+    name = "my_custom_rag"
+
+    def retrieve(self, query: str) -> list[RetrievedChunk]:
+        # Connect to your vector DB, hybrid search, or custom retriever
+        return [
+            RetrievedChunk(
+                id="doc_101",
+                text="Refunds are processed within 5-7 business days.",
+                score=0.94,
+            )
+        ]
+
+    def generate(self, query: str, chunks: list[RetrievedChunk]) -> str:
+        # Pass retrieved context to your LLM
+        return "Your refund will take 5-7 business days."
+
+# Expose top-level adapter instance
+pipeline = MyCustomPipeline()
+```
+
+### In-Memory Example Pipeline
+
+An in-memory, deterministic example pipeline requiring no API keys or external services is provided at `examples/basic_pipeline.py`.
 
 ---
 
@@ -88,18 +128,38 @@ Datasets are structured as JSON files matching the `GoldenDataset` schema:
 }
 ```
 
-### Dataset Validation Rules
+---
 
-RAGDiag enforces strict validation to catch dataset mistakes early:
-- Unique sample IDs across the entire dataset.
-- At least one sample per dataset.
-- Non-empty `id`, `query`, and `expected_answer`.
-- Non-empty `relevant_chunk_ids` with at least one valid chunk ID and no duplicates within the same sample.
-- `query_type` must be one of `factual`, `reasoning`, or `multi-hop`.
+## Evaluation Execution Engine
 
-### Validating a Dataset via CLI
+The `Evaluator` runs a pipeline against a `GoldenDataset`:
+1. **Retrieval**: Executes `pipeline.retrieve(query)`, validates `list[RetrievedChunk]` output, and measures retrieval latency (`retrieval_ms`).
+2. **Generation**: If retrieval succeeds, executes `pipeline.generate(query, chunks)`, validates string output, and measures generation latency (`generation_ms`).
+3. **Error Isolation**: Catches exceptions per query without aborting subsequent queries.
+4. **Evidence Capture**: Retains retrieved chunks, answers, status (`completed` / `failed`), errors, and latency breakdowns in `EvaluationResult`.
 
-Validate any dataset file before running evaluation:
+### Running Evaluation via Python API
+
+```python
+from ragdiag import Evaluator
+from ragdiag.dataset import load_dataset
+from ragdiag.pipeline import load_pipeline
+
+pipeline = load_pipeline("examples/basic_pipeline.py")
+dataset = load_dataset("examples/basic_dataset.json")
+
+evaluator = Evaluator()
+results = evaluator.evaluate(pipeline, dataset)
+
+for res in results:
+    print(f"[{res.status}] Query: {res.query[:30]}... | Total Latency: {res.latency['total_ms']}ms")
+```
+
+---
+
+## CLI Commands
+
+### 1. Validate a Golden Dataset
 
 ```bash
 uv run ragdiag validate --dataset examples/basic_dataset.json
@@ -118,13 +178,27 @@ Query types:
 Dataset is valid.
 ```
 
-### Loading a Dataset in Python
+### 2. Run Pipeline Evaluation
 
-```python
-from ragdiag.dataset import load_dataset
+```bash
+uv run ragdiag run --pipeline examples/basic_pipeline.py --dataset examples/basic_dataset.json
+```
 
-dataset = load_dataset("examples/basic_dataset.json")
-print(f"Loaded {len(dataset.samples)} samples from {dataset.name} (v{dataset.version})")
+Output:
+```text
+RAGDiag
+------------------------
+Pipeline: basic_pipeline
+Dataset:  basic_dataset
+Queries:  5
+
+Running evaluation...
+
+Evaluation complete.
+
+Completed:  5
+Failed:     0
+Total time: 0.01s
 ```
 
 ---
@@ -140,50 +214,22 @@ RAGDiag uses [`uv`](https://docs.astral.sh/uv/) for fast, reliable virtual envir
 
 ### Installation
 
-1. Clone the repository and navigate into the project:
-   ```bash
-   cd ragdiag
-   ```
-
-2. Create a virtual environment and install dependencies in editable mode:
-   ```bash
-   uv venv
-   uv pip install -e ".[dev]"
-   ```
-
----
-
-## Running Tests and Linting
-
-Run the test suite with `pytest`:
-
 ```bash
-uv run pytest
+git clone <repo-url>
+cd ragdiag
+uv venv
+uv pip install -e ".[dev]"
 ```
 
-Check code style and quality with `ruff`:
+### Running Tests and Linting
 
 ```bash
+# Run pytest suite
+uv run pytest
+
+# Check style and formatting
 uv run ruff check .
 uv run ruff format --check .
-```
-
----
-
-## CLI Commands
-
-```bash
-# Show CLI options
-uv run ragdiag --help
-
-# Show version
-uv run ragdiag --version
-
-# Validate a golden evaluation dataset
-uv run ragdiag validate --dataset examples/basic_dataset.json
-
-# Preview pipeline evaluation run (stub)
-uv run ragdiag run --help
 ```
 
 ---
@@ -192,6 +238,7 @@ uv run ragdiag run --help
 
 - [x] **Phase 1: Project Foundation** (Packaging, domain models, pipeline interface, CLI skeleton, test suite)
 - [x] **Phase 2: Golden Dataset System** (JSON schema, QueryType taxonomy, loader, validator, CLI validate command)
-- [ ] **Phase 3: Evaluation Metrics** (Retrieval precision/recall, context relevance, answer correctness)
-- [ ] **Phase 4: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes)
-- [ ] **Phase 5: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)
+- [x] **Phase 3: Evaluation Execution Engine** (Pipeline dynamic loader, Evaluator lifecycle, latency tracking, error isolation, CLI run command)
+- [ ] **Phase 4: Evaluation Metrics** (Retrieval precision/recall/MRR, context relevance, answer correctness)
+- [ ] **Phase 5: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes)
+- [ ] **Phase 6: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)

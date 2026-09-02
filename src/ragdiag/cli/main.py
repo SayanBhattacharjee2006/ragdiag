@@ -1,5 +1,6 @@
 """CLI interface for RAGDiag."""
 
+import time
 from typing import Annotated
 
 import typer
@@ -10,6 +11,9 @@ import ragdiag
 from ragdiag.dataset.exceptions import DatasetLoadError, DatasetValidationError
 from ragdiag.dataset.loader import load_dataset
 from ragdiag.dataset.validator import validate_dataset
+from ragdiag.pipeline.exceptions import PipelineError
+from ragdiag.pipeline.loader import load_pipeline
+from ragdiag.runner.evaluator import Evaluator
 
 app = typer.Typer(
     name="ragdiag",
@@ -104,29 +108,65 @@ def validate(
 @app.command()
 def run(
     pipeline: Annotated[
-        str | None,
+        str,
         typer.Option(
             "--pipeline",
             "-p",
-            help="Path or module import for the Pipeline adapter.",
+            help="Path to Python file defining a 'pipeline = MyPipeline()' adapter instance.",
         ),
-    ] = None,
+    ],
     dataset: Annotated[
-        str | None,
+        str,
         typer.Option(
             "--dataset",
             "-d",
-            help="Path to evaluation dataset (JSON/JSONL).",
+            help="Path to golden evaluation dataset JSON file.",
         ),
-    ] = None,
+    ],
 ) -> None:
-    """Run RAG evaluation and diagnosis against a pipeline."""
-    console.print(
-        Panel.fit(
-            "[bold yellow]Evaluation Engine Not Implemented[/bold yellow]\n\n"
-            "The evaluation and root-cause diagnosis engine is not implemented yet.\n"
-            "This command will be implemented in subsequent development phases.",
-            title="[bold cyan]RAGDiag[/bold cyan]",
-            border_style="yellow",
+    """Run RAG evaluation against a pipeline and dataset."""
+    try:
+        loaded_pipeline = load_pipeline(pipeline)
+    except PipelineError as exc:
+        console.print(
+            Panel(
+                f"[bold red]Pipeline Load Failed[/bold red]\n\n{exc}",
+                title="[bold red]Pipeline Error[/bold red]",
+                border_style="red",
+            )
         )
-    )
+        raise typer.Exit(code=1) from exc
+
+    try:
+        loaded_dataset = load_dataset(dataset)
+    except (DatasetLoadError, DatasetValidationError) as exc:
+        console.print(
+            Panel(
+                f"[bold red]Dataset Load Failed[/bold red]\n\n{exc}",
+                title="[bold red]Dataset Error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1) from exc
+
+    console.print("[bold cyan]RAGDiag[/bold cyan]")
+    console.print("-" * 24)
+    console.print(f"Pipeline: [bold]{loaded_pipeline.name}[/bold]")
+    console.print(f"Dataset:  [bold]{loaded_dataset.name}[/bold]")
+    console.print(f"Queries:  [bold]{len(loaded_dataset.samples)}[/bold]\n")
+    console.print("[dim]Running evaluation...[/dim]\n")
+
+    evaluator = Evaluator()
+    start_time = time.perf_counter()
+    results = evaluator.evaluate(loaded_pipeline, loaded_dataset)
+    total_elapsed = time.perf_counter() - start_time
+
+    completed_count = sum(1 for r in results if r.status == "completed")
+    failed_count = sum(1 for r in results if r.status == "failed")
+
+    fail_style = "red" if failed_count > 0 else "green"
+
+    console.print("[bold green]Evaluation complete.[/bold green]\n")
+    console.print(f"Completed:  [green]{completed_count}[/green]")
+    console.print(f"Failed:     [{fail_style}]{failed_count}[/{fail_style}]")
+    console.print(f"Total time: {total_elapsed:.2f}s")
