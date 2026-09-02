@@ -12,6 +12,7 @@ import ragdiag
 from ragdiag.dataset.exceptions import DatasetLoadError, DatasetValidationError
 from ragdiag.dataset.loader import load_dataset
 from ragdiag.dataset.validator import validate_dataset
+from ragdiag.metrics.aggregation import aggregate_metrics
 from ragdiag.pipeline.exceptions import PipelineError
 from ragdiag.pipeline.loader import load_pipeline
 from ragdiag.runner.evaluator import Evaluator
@@ -176,12 +177,23 @@ def run(
     results = evaluator.evaluate(loaded_pipeline, loaded_dataset)
     total_elapsed = time.perf_counter() - start_time
 
-    completed_count = sum(1 for r in results if r.status == "completed")
-    failed_count = sum(1 for r in results if r.status == "failed")
-
-    fail_style = "red" if failed_count > 0 else "green"
+    report = aggregate_metrics(results, k=5)
 
     c.print("[bold green]Evaluation complete.[/bold green]\n")
-    c.print(f"Completed:  [green]{completed_count}[/green]")
-    c.print(f"Failed:     [{fail_style}]{failed_count}[/{fail_style}]")
+    c.print("[bold]Retrieval Metrics[/bold]")
+    c.print("-" * 24)
+    c.print(f"Precision@{report.k}:  {report.mean_precision_at_k:.2f}")
+    c.print(f"Recall@{report.k}:     {report.mean_recall_at_k:.2f}")
+    c.print(f"MRR:          {report.mrr:.2f}\n")
+
+    c.print("[bold]Retrieval Latency[/bold]")
+    c.print("-" * 24)
+    c.print(f"Mean:   {report.retrieval_latency.mean_ms:.2f} ms")
+    c.print(f"P50:    {report.retrieval_latency.p50_ms:.2f} ms")
+    c.print(f"P95:    {report.retrieval_latency.p95_ms:.2f} ms")
+    c.print(f"P99:    {report.retrieval_latency.p99_ms:.2f} ms\n")
+
+    fail_style = "red" if report.failed_queries > 0 else "green"
+    c.print(f"Completed:  [green]{report.completed_queries}[/green]")
+    c.print(f"Failed:     [{fail_style}]{report.failed_queries}[/{fail_style}]")
     c.print(f"Total time: {total_elapsed:.2f}s")

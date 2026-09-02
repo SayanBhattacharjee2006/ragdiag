@@ -1,5 +1,12 @@
 """RAGDiag: RAG evaluation and root-cause diagnosis SDK/CLI."""
 
+from ragdiag.metrics import (
+    aggregate_metrics,
+    mean_reciprocal_rank,
+    precision_at_k,
+    recall_at_k,
+    reciprocal_rank,
+)
 from ragdiag.models.chunk import RetrievedChunk
 from ragdiag.models.dataset import GoldenDataset
 from ragdiag.models.result import EvaluationResult
@@ -18,4 +25,9 @@ __all__ = [
     "QueryType",
     "RetrievedChunk",
     "__version__",
+    "aggregate_metrics",
+    "mean_reciprocal_rank",
+    "precision_at_k",
+    "recall_at_k",
+    "reciprocal_rank",
 ]

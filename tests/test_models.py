@@ -11,6 +11,11 @@ from ragdiag import (
     QueryType,
     RetrievedChunk,
     __version__,
+    aggregate_metrics,
+    mean_reciprocal_rank,
+    precision_at_k,
+    recall_at_k,
+    reciprocal_rank,
 )
 
 
@@ -23,6 +28,11 @@ def test_public_imports() -> None:
     assert EvaluationResult is not None
     assert GoldenDataset is not None
     assert QueryType is not None
+    assert precision_at_k is not None
+    assert recall_at_k is not None
+    assert reciprocal_rank is not None
+    assert mean_reciprocal_rank is not None
+    assert aggregate_metrics is not None
 
 
 class TestRetrievedChunk:

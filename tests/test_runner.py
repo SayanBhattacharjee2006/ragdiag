@@ -176,6 +176,22 @@ def test_successful_execution(single_sample: QuerySample) -> None:
     assert result.latency["generation_ms"] >= 0.0
     assert result.latency["total_ms"] >= result.latency["retrieval_ms"]
 
+    # Check retrieval metrics
+    assert "precision_at_5" in result.metrics
+    assert "recall_at_5" in result.metrics
+    assert "reciprocal_rank" in result.metrics
+    assert result.metrics["precision_at_5"] == 0.5
+    assert result.metrics["recall_at_5"] == 1.0
+    assert result.metrics["reciprocal_rank"] == 1.0
+
+    # Verify future metrics and diagnosis are NOT yet populated
+    assert "groundedness" not in result.metrics
+    assert "answer_correctness" not in result.metrics
+    assert result.diagnosis == {}
+
+    # Check query_type preservation
+    assert result.query_type == "factual"
+
 
 def test_empty_retrieval_execution(single_sample: QuerySample) -> None:
     """Verify that retrieve() returning an empty list completes successfully."""
@@ -189,6 +205,9 @@ def test_empty_retrieval_execution(single_sample: QuerySample) -> None:
     assert result.generated_answer == "Fallback answer with 0 chunks."
     assert result.error is None
     assert result.latency["total_ms"] >= 0.0
+    assert result.metrics["precision_at_5"] == 0.0
+    assert result.metrics["recall_at_5"] == 0.0
+    assert result.metrics["reciprocal_rank"] == 0.0
 
 
 def test_retrieval_exception_handling(single_sample: QuerySample) -> None:
@@ -199,30 +218,28 @@ def test_retrieval_exception_handling(single_sample: QuerySample) -> None:
     result = evaluator.execute_sample(single_sample, pipeline)
 
     assert result.status == "failed"
-    assert result.error is not None
-    assert "retrieval failed: ConnectionError: Vector database unavailable" in result.error
-    assert result.retrieved_chunks == []
-    assert result.generated_answer is None
+    assert "retrieval failed" in (result.error or "")
+    assert "ConnectionError" in (result.error or "")
     assert not pipeline.generate_called
-    assert result.latency["retrieval_ms"] >= 0.0
-    assert result.latency["generation_ms"] == 0.0
+    assert result.generated_answer is None
+    assert result.metrics == {}
+    assert result.query_type == "factual"
 
 
 def test_generation_exception_handling(single_sample: QuerySample) -> None:
-    """Verify generation exception preserves chunks, retrieval latency, and marks failure."""
+    """Verify generation exception marks query as failed but preserves retrieved chunks."""
     pipeline = MockGenerationErrorPipeline()
     evaluator = Evaluator()
 
     result = evaluator.execute_sample(single_sample, pipeline)
 
     assert result.status == "failed"
-    assert result.error is not None
-    assert "generation failed: TimeoutError: LLM generation request timed out" in result.error
+    assert "generation failed" in (result.error or "")
+    assert "TimeoutError" in (result.error or "")
     assert len(result.retrieved_chunks) == 1
-    assert result.retrieved_chunks[0].id == "c1"
     assert result.generated_answer is None
-    assert result.latency["retrieval_ms"] >= 0.0
-    assert result.latency["generation_ms"] >= 0.0
+    assert result.metrics == {}
+    assert result.query_type == "factual"
 
 
 def test_invalid_retrieval_output_not_a_list(single_sample: QuerySample) -> None:

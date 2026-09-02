@@ -31,3 +31,4 @@ class EvaluationResult(BaseModel):
     latency: dict[str, float] = Field(default_factory=dict)
     status: str = "completed"
     error: str | None = None
+    query_type: str | None = None

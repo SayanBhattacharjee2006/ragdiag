@@ -2,6 +2,7 @@
 
 import time
 
+from ragdiag.metrics.retrieval import compute_retrieval_metrics
 from ragdiag.models.chunk import RetrievedChunk
 from ragdiag.models.dataset import GoldenDataset
 from ragdiag.models.result import EvaluationResult
@@ -14,9 +15,18 @@ class Evaluator:
 
     Executes each query sample sequentially, records retrieval and generation
     latencies in milliseconds, captures raw evidence (chunks and answers),
+    calculates deterministic retrieval metrics (Precision@K, Recall@K, Reciprocal Rank),
     and isolates errors on a per-sample basis so that individual query failures
     never abort the overall evaluation run.
     """
+
+    def __init__(self, k: int = 5) -> None:
+        """Initialize the Evaluator.
+
+        Args:
+            k: The rank depth cutoff K for retrieval metrics (default: 5).
+        """
+        self.k = k
 
     def evaluate(
         self,
@@ -53,6 +63,11 @@ class Evaluator:
             An `EvaluationResult` containing chunks, answer, latencies (in ms),
             status ('completed' or 'failed'), and error message if any.
         """
+        query_type_val = (
+            sample.query_type.value
+            if hasattr(sample.query_type, "value")
+            else str(sample.query_type)
+        )
         retrieval_start = time.perf_counter()
         retrieval_ms = 0.0
         retrieved_chunks: list[RetrievedChunk] = []
@@ -92,6 +107,7 @@ class Evaluator:
                 },
                 status="failed",
                 error=f"retrieval failed: {type(exc).__name__}: {exc}",
+                query_type=query_type_val,
             )
 
         # Stage 2: Generation
@@ -123,17 +139,29 @@ class Evaluator:
                 },
                 status="failed",
                 error=f"generation failed: {type(exc).__name__}: {exc}",
+                query_type=query_type_val,
             )
 
         # Stage 3: Completed Execution
         total_ms = retrieval_ms + generation_ms
+        retrieval_metrics = compute_retrieval_metrics(
+            relevant_chunk_ids=sample.relevant_chunk_ids,
+            retrieved_chunks=retrieved_chunks,
+            k=self.k,
+        )
+        metrics: dict[str, object] = {
+            f"precision_at_{self.k}": retrieval_metrics.precision_at_k,
+            f"recall_at_{self.k}": retrieval_metrics.recall_at_k,
+            "reciprocal_rank": retrieval_metrics.reciprocal_rank,
+        }
+
         return EvaluationResult(
             query_id=sample.id,
             query=sample.query,
             expected_chunk_ids=sample.relevant_chunk_ids,
             retrieved_chunks=retrieved_chunks,
             generated_answer=generated_answer,
-            metrics={},
+            metrics=metrics,
             diagnosis={},
             latency={
                 "retrieval_ms": round(retrieval_ms, 3),
@@ -142,4 +170,5 @@ class Evaluator:
             },
             status="completed",
             error=None,
+            query_type=query_type_val,
         )

@@ -15,11 +15,11 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 - Did the generator hallucinate despite having the necessary context?
 - Where is the latency bottleneck occurring?
 
-**RAGDiag** is designed to solve this problem by executing evaluation datasets against custom RAG pipelines, computing precision/recall/faithfulness metrics, categorizing structured failure modes, and facilitating configuration comparisons.
+**RAGDiag** is designed to solve this problem by executing evaluation datasets against custom RAG pipelines, computing precision/recall/latency metrics, categorizing structured failure modes, and facilitating configuration comparisons.
 
 > [!NOTE]
 > **Status: Under Active Development.**
-> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, and the evaluation execution engine (Phase 3). Quantitative evaluation metrics, LLM judge, and diagnostic components will be delivered in subsequent phases.
+> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, and deterministic retrieval metrics & latency analysis (Phase 4). LLM-as-a-judge (groundedness, answer correctness) and diagnostic components will be delivered in subsequent phases.
 
 ---
 
@@ -34,16 +34,16 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 │       def generate(query, chunks) -> str                    │
 │   pipeline = MyPipeline()                                   │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ Adapter Contract
-                               ▼
+                                │ Adapter Contract
+                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                           RAGDiag                           │
 │                                                             │
 │   1. Golden Dataset: Validated queries + ground truth       │
 │   2. Execution Engine: Evaluator orchestrates queries       │
-│   3. Metrics Calculation: Retrieval & Generation (Upcoming) │
+│   3. Metrics Layer: Precision@K, Recall@K, MRR, Latency     │
 │   4. Root-Cause Diagnosis: Structured Attribution (Upcoming)│
-│   5. Output Models: EvaluationResult                        │
+│   5. Output Models: EvaluationResult, AggregateReport       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -132,29 +132,63 @@ Datasets are structured as JSON files matching the `GoldenDataset` schema:
 
 ---
 
+## Retrieval Metrics & Latency Analysis
+
+RAGDiag calculates deterministic, framework-agnostic retrieval quality metrics and latency benchmarks on the raw evidence captured during evaluation.
+
+### Core Metrics
+
+- **Precision@K (`precision_at_k`)**:
+  Measures the fraction of retrieved chunks in the top-$K$ results that are relevant to the query:
+  $$\text{Precision@}K = \frac{|\text{Relevant Chunks in Top-}K|}{\min(K, |\text{Retrieved Chunks}|)}$$
+  *Note: When a retriever returns fewer than $K$ results, the denominator uses the count of returned chunks to avoid artificially penalizing configurations with smaller cutoffs.*
+
+- **Recall@K (`recall_at_k`)**:
+  Measures the proportion of all ground-truth relevant chunks that were successfully retrieved in the top-$K$ results:
+  $$\text{Recall@}K = \frac{|\text{Relevant Chunks in Top-}K|}{|\text{Total Ground-Truth Relevant Chunks}|}$$
+
+- **Mean Reciprocal Rank (`mrr`)**:
+  Evaluates ranking quality across queries. For each query, the Reciprocal Rank (RR) is $\frac{1}{\text{rank}}$ of the first relevant retrieved chunk (or $0.0$ if no relevant chunk is retrieved). MRR is the mean of RR scores across queries.
+
+- **Retrieval Latency Statistics**:
+  Aggregates retrieval execution times in milliseconds using standard linear interpolation percentiles (NIST / NumPy Method 7) without external dependencies:
+  - **Mean**: Arithmetic average retrieval latency.
+  - **P50**: Median retrieval latency.
+  - **P95**: 95th percentile retrieval latency (tail latency).
+  - **P99**: 99th percentile retrieval latency (extreme outliers).
+
+*Failed queries are excluded from quality and latency denominators to prevent infrastructure errors from distorting retrieval quality measurements.*
+
+---
+
 ## Evaluation Execution Engine
 
 The `Evaluator` runs a pipeline against a `GoldenDataset`:
-1. **Retrieval**: Executes `pipeline.retrieve(query)`, validates `list[RetrievedChunk]` output, and measures retrieval latency (`retrieval_ms`).
-2. **Generation**: If retrieval succeeds, executes `pipeline.generate(query, chunks)`, validates string output, and measures generation latency (`generation_ms`).
-3. **Error Isolation**: Catches exceptions per query without aborting subsequent queries.
-4. **Evidence Capture**: Retains retrieved chunks, answers, status (`completed` / `failed`), errors, and latency breakdowns in `EvaluationResult`.
+1. **Retrieval**: Executes `pipeline.retrieve(query)`, validates `list[RetrievedChunk]` output, and records retrieval latency (`retrieval_ms`).
+2. **Generation**: If retrieval succeeds, executes `pipeline.generate(query, chunks)`, validates string output, and records generation latency (`generation_ms`).
+3. **Metric Calculation**: Computes per-query retrieval metrics (`precision_at_5`, `recall_at_5`, `reciprocal_rank`).
+4. **Error Isolation**: Catches exceptions per query without aborting subsequent queries.
+5. **Evidence Capture**: Retains retrieved chunks, answers, status (`completed` / `failed`), errors, and latency breakdowns in `EvaluationResult`.
 
 ### Running Evaluation via Python API
 
 ```python
-from ragdiag import Evaluator
+from ragdiag import Evaluator, aggregate_metrics
 from ragdiag.dataset import load_dataset
 from ragdiag.pipeline import load_pipeline
 
 pipeline = load_pipeline("examples/basic_pipeline.py")
 dataset = load_dataset("examples/basic_dataset.json")
 
-evaluator = Evaluator()
+evaluator = Evaluator(k=5)
 results = evaluator.evaluate(pipeline, dataset)
 
-for res in results:
-    print(f"[{res.status}] Query: {res.query[:30]}... | Total Latency: {res.latency['total_ms']}ms")
+# Aggregate report
+report = aggregate_metrics(results, k=5)
+print(f"Precision@5: {report.mean_precision_at_k:.2f}")
+print(f"Recall@5:    {report.mean_recall_at_k:.2f}")
+print(f"MRR:         {report.mrr:.2f}")
+print(f"P50 Latency: {report.retrieval_latency.p50_ms:.2f} ms")
 ```
 
 ---
@@ -169,15 +203,17 @@ uv run ragdiag validate --dataset examples/basic_dataset.json
 
 Output:
 ```text
-Dataset: basic_dataset
-Version: 1.0
-Samples: 5
-Query types:
-  factual: 2
-  reasoning: 2
-  multi-hop: 1
-
-Dataset is valid.
++------------------------ Dataset Validation Summary -------------------------+
+| Dataset: basic_dataset                                                      |
+| Version: 1.0                                                                |
+| Samples: 5                                                                  |
+| Query types:                                                                |
+|   factual: 2                                                                |
+|   reasoning: 2                                                              |
+|   multi-hop: 1                                                              |
+|                                                                             |
+| Dataset is valid.                                                           |
++-----------------------------------------------------------------------------+
 ```
 
 ### 2. Run Pipeline Evaluation
@@ -198,9 +234,22 @@ Running evaluation...
 
 Evaluation complete.
 
+Retrieval Metrics
+------------------------
+Precision@5:  0.90
+Recall@5:     1.00
+MRR:          0.87
+
+Retrieval Latency
+------------------------
+Mean:   0.01 ms
+P50:    0.00 ms
+P95:    0.01 ms
+P99:    0.01 ms
+
 Completed:  5
 Failed:     0
-Total time: 0.01s
+Total time: 0.00s
 ```
 
 ---
@@ -241,6 +290,7 @@ uv run ruff format --check .
 - [x] **Phase 1: Project Foundation** (Packaging, domain models, pipeline interface, CLI skeleton, test suite)
 - [x] **Phase 2: Golden Dataset System** (JSON schema, QueryType taxonomy, loader, validator, CLI validate command)
 - [x] **Phase 3: Evaluation Execution Engine** (Pipeline dynamic loader, Evaluator lifecycle, latency tracking, error isolation, CLI run command)
-- [ ] **Phase 4: Evaluation Metrics** (Retrieval precision/recall/MRR, context relevance, answer correctness)
-- [ ] **Phase 5: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes)
-- [ ] **Phase 6: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)
+- [x] **Phase 4: Retrieval Metrics & Latency Analysis** (Precision@K, Recall@K, Reciprocal Rank, MRR, percentile latency statistics, aggregate report)
+- [ ] **Phase 5: LLM Judge** (Groundedness and answer correctness scoring)
+- [ ] **Phase 6: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes)
+- [ ] **Phase 7: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)
