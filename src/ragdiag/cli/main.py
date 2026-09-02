@@ -1,5 +1,6 @@
 """CLI interface for RAGDiag."""
 
+import sys
 import time
 from typing import Annotated
 
@@ -22,15 +23,27 @@ app = typer.Typer(
     add_completion=False,
 )
 
-console = Console()
+
+def get_console() -> Console:
+    """Return a Rich Console configured via public API based on stdout TTY status.
+
+    When output is captured by a test runner or redirected to a non-interactive
+    stream (pipe or file), terminal escape sequences are disabled for clean,
+    deterministic output. When running in an interactive terminal, standard
+    terminal detection and styling apply.
+    """
+    is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    return Console(force_terminal=None if is_tty else False)
+
+
+console = get_console()
 
 
 def version_callback(value: bool) -> None:
     """Print the version of ragdiag and exit."""
     if value:
-        console.print(
-            f"[bold cyan]ragdiag[/bold cyan] version [green]{ragdiag.__version__}[/green]"
-        )
+        c = get_console()
+        c.print(f"[bold cyan]ragdiag[/bold cyan] version [green]{ragdiag.__version__}[/green]")
         raise typer.Exit()
 
 
@@ -62,11 +75,12 @@ def validate(
     ],
 ) -> None:
     """Validate a golden evaluation dataset JSON file."""
+    c = get_console()
     try:
         ds = load_dataset(dataset)
         summary = validate_dataset(ds)
     except (DatasetLoadError, DatasetValidationError) as err:
-        console.print(
+        c.print(
             Panel(
                 f"[bold red]Validation Failed[/bold red]\n\n{err}",
                 title="[bold red]Dataset Error[/bold red]",
@@ -75,7 +89,7 @@ def validate(
         )
         raise typer.Exit(code=1) from err
     except Exception as exc:
-        console.print(
+        c.print(
             Panel(
                 f"[bold red]Unexpected Error[/bold red]\n\n{exc}",
                 title="[bold red]Error[/bold red]",
@@ -96,7 +110,7 @@ def validate(
         f"[bold green]Dataset is valid.[/bold green]"
     )
 
-    console.print(
+    c.print(
         Panel(
             summary_text,
             title="[bold green]Dataset Validation Summary[/bold green]",
@@ -125,10 +139,11 @@ def run(
     ],
 ) -> None:
     """Run RAG evaluation against a pipeline and dataset."""
+    c = get_console()
     try:
         loaded_pipeline = load_pipeline(pipeline)
     except PipelineError as exc:
-        console.print(
+        c.print(
             Panel(
                 f"[bold red]Pipeline Load Failed[/bold red]\n\n{exc}",
                 title="[bold red]Pipeline Error[/bold red]",
@@ -140,7 +155,7 @@ def run(
     try:
         loaded_dataset = load_dataset(dataset)
     except (DatasetLoadError, DatasetValidationError) as exc:
-        console.print(
+        c.print(
             Panel(
                 f"[bold red]Dataset Load Failed[/bold red]\n\n{exc}",
                 title="[bold red]Dataset Error[/bold red]",
@@ -149,12 +164,12 @@ def run(
         )
         raise typer.Exit(code=1) from exc
 
-    console.print("[bold cyan]RAGDiag[/bold cyan]")
-    console.print("-" * 24)
-    console.print(f"Pipeline: [bold]{loaded_pipeline.name}[/bold]")
-    console.print(f"Dataset:  [bold]{loaded_dataset.name}[/bold]")
-    console.print(f"Queries:  [bold]{len(loaded_dataset.samples)}[/bold]\n")
-    console.print("[dim]Running evaluation...[/dim]\n")
+    c.print("[bold cyan]RAGDiag[/bold cyan]")
+    c.print("-" * 24)
+    c.print(f"Pipeline: [bold]{loaded_pipeline.name}[/bold]")
+    c.print(f"Dataset:  [bold]{loaded_dataset.name}[/bold]")
+    c.print(f"Queries:  [bold]{len(loaded_dataset.samples)}[/bold]\n")
+    c.print("[dim]Running evaluation...[/dim]\n")
 
     evaluator = Evaluator()
     start_time = time.perf_counter()
@@ -166,7 +181,7 @@ def run(
 
     fail_style = "red" if failed_count > 0 else "green"
 
-    console.print("[bold green]Evaluation complete.[/bold green]\n")
-    console.print(f"Completed:  [green]{completed_count}[/green]")
-    console.print(f"Failed:     [{fail_style}]{failed_count}[/{fail_style}]")
-    console.print(f"Total time: {total_elapsed:.2f}s")
+    c.print("[bold green]Evaluation complete.[/bold green]\n")
+    c.print(f"Completed:  [green]{completed_count}[/green]")
+    c.print(f"Failed:     [{fail_style}]{failed_count}[/{fail_style}]")
+    c.print(f"Total time: {total_elapsed:.2f}s")

@@ -63,6 +63,7 @@ The adapter file must define a top-level instance named `pipeline`:
 # my_pipeline.py
 from ragdiag import Pipeline, RetrievedChunk
 
+
 class MyCustomPipeline(Pipeline):
     name = "my_custom_rag"
 
@@ -79,6 +80,7 @@ class MyCustomPipeline(Pipeline):
     def generate(self, query: str, chunks: list[RetrievedChunk]) -> str:
         # Pass retrieved context to your LLM
         return "Your refund will take 5-7 business days."
+
 
 # Expose top-level adapter instance
 pipeline = MyCustomPipeline()
