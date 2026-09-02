@@ -5,8 +5,10 @@ from pydantic import ValidationError
 
 from ragdiag import (
     EvaluationResult,
+    GoldenDataset,
     Pipeline,
     QuerySample,
+    QueryType,
     RetrievedChunk,
     __version__,
 )
@@ -19,6 +21,8 @@ def test_public_imports() -> None:
     assert RetrievedChunk is not None
     assert QuerySample is not None
     assert EvaluationResult is not None
+    assert GoldenDataset is not None
+    assert QueryType is not None
 
 
 class TestRetrievedChunk:
@@ -48,34 +52,131 @@ class TestRetrievedChunk:
 
 
 class TestQuerySample:
-    """Tests for QuerySample model."""
+    """Tests for QuerySample model with strengthened validation."""
 
-    def test_sample_creation_with_defaults(self) -> None:
+    def test_sample_creation_valid(self) -> None:
         sample = QuerySample(
             id="sample-001",
             query="What is the refund policy?",
             expected_answer="Refunds are processed within 5-7 business days.",
+            relevant_chunk_ids=["chunk-01", "chunk-02"],
+            query_type=QueryType.FACTUAL,
         )
         assert sample.id == "sample-001"
         assert sample.query == "What is the refund policy?"
         assert sample.expected_answer == "Refunds are processed within 5-7 business days."
-        assert sample.relevant_chunk_ids == []
-        assert sample.query_type == "general"
+        assert sample.relevant_chunk_ids == ["chunk-01", "chunk-02"]
+        assert sample.query_type == QueryType.FACTUAL
+        assert sample.query_type == "factual"
 
-    def test_sample_creation_explicit(self) -> None:
+    def test_sample_creation_string_query_type_coercion(self) -> None:
         sample = QuerySample(
             id="sample-002",
-            query="How do I verify a webhook signature?",
-            expected_answer="Use the HMAC SHA256 signature verification helper.",
-            relevant_chunk_ids=["chunk-10", "chunk-11"],
-            query_type="technical",
+            query="Why did the transaction fail?",
+            expected_answer="Card expired.",
+            relevant_chunk_ids=["chunk-03"],
+            query_type="reasoning",
         )
-        assert sample.relevant_chunk_ids == ["chunk-10", "chunk-11"]
-        assert sample.query_type == "technical"
+        assert sample.query_type == QueryType.REASONING
 
-    def test_sample_validation_missing_fields(self) -> None:
+    def test_sample_validation_empty_id(self) -> None:
+        with pytest.raises(ValidationError, match="must not be empty"):
+            QuerySample(
+                id="   ",
+                query="Query",
+                expected_answer="Answer",
+                relevant_chunk_ids=["c1"],
+                query_type=QueryType.FACTUAL,
+            )
+
+    def test_sample_validation_empty_query(self) -> None:
+        with pytest.raises(ValidationError, match="must not be empty"):
+            QuerySample(
+                id="sample-01",
+                query="",
+                expected_answer="Answer",
+                relevant_chunk_ids=["c1"],
+                query_type=QueryType.FACTUAL,
+            )
+
+    def test_sample_validation_empty_expected_answer(self) -> None:
+        with pytest.raises(ValidationError, match="must not be empty"):
+            QuerySample(
+                id="sample-01",
+                query="Query",
+                expected_answer="   ",
+                relevant_chunk_ids=["c1"],
+                query_type=QueryType.FACTUAL,
+            )
+
+    def test_sample_validation_empty_chunk_ids(self) -> None:
+        with pytest.raises(ValidationError, match="at least one chunk ID"):
+            QuerySample(
+                id="sample-01",
+                query="Query",
+                expected_answer="Answer",
+                relevant_chunk_ids=[],
+                query_type=QueryType.FACTUAL,
+            )
+
+    def test_sample_validation_duplicate_chunk_ids(self) -> None:
+        with pytest.raises(ValidationError, match="Duplicate chunk ID"):
+            QuerySample(
+                id="sample-01",
+                query="Query",
+                expected_answer="Answer",
+                relevant_chunk_ids=["c1", "c1"],
+                query_type=QueryType.FACTUAL,
+            )
+
+    def test_sample_validation_unsupported_query_type(self) -> None:
         with pytest.raises(ValidationError):
-            QuerySample(id="sample-003", query="Incomplete sample")
+            QuerySample(
+                id="sample-01",
+                query="Query",
+                expected_answer="Answer",
+                relevant_chunk_ids=["c1"],
+                query_type="unsupported-type",
+            )
+
+
+class TestGoldenDatasetModel:
+    """Tests for GoldenDataset domain model."""
+
+    def test_dataset_creation_valid(self) -> None:
+        sample = QuerySample(
+            id="q1",
+            query="What is 3DS?",
+            expected_answer="3D Secure authentication.",
+            relevant_chunk_ids=["doc1"],
+            query_type=QueryType.FACTUAL,
+        )
+        ds = GoldenDataset(name="eval_v1", version="1.0", samples=[sample])
+        assert ds.name == "eval_v1"
+        assert ds.version == "1.0"
+        assert len(ds.samples) == 1
+
+    def test_dataset_empty_samples_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            GoldenDataset(name="eval_v1", version="1.0", samples=[])
+
+    def test_dataset_duplicate_sample_ids_fails(self) -> None:
+        sample1 = QuerySample(
+            id="dup_id",
+            query="Q1",
+            expected_answer="A1",
+            relevant_chunk_ids=["doc1"],
+            query_type=QueryType.FACTUAL,
+        )
+        sample2 = QuerySample(
+            id="dup_id",
+            query="Q2",
+            expected_answer="A2",
+            relevant_chunk_ids=["doc2"],
+            query_type=QueryType.REASONING,
+        )
+        with pytest.raises(ValidationError, match="duplicate sample IDs"):
+            GoldenDataset(name="eval_v1", version="1.0", samples=[sample1, sample2])
 
 
 class TestEvaluationResult:

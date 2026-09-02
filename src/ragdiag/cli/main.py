@@ -7,6 +7,9 @@ from rich.console import Console
 from rich.panel import Panel
 
 import ragdiag
+from ragdiag.dataset.exceptions import DatasetLoadError, DatasetValidationError
+from ragdiag.dataset.loader import load_dataset
+from ragdiag.dataset.validator import validate_dataset
 
 app = typer.Typer(
     name="ragdiag",
@@ -41,6 +44,61 @@ def main(
     ] = None,
 ) -> None:
     """RAGDiag: RAG evaluation and root-cause diagnosis CLI."""
+
+
+@app.command()
+def validate(
+    dataset: Annotated[
+        str,
+        typer.Option(
+            "--dataset",
+            "-d",
+            help="Path to evaluation dataset JSON file.",
+        ),
+    ],
+) -> None:
+    """Validate a golden evaluation dataset JSON file."""
+    try:
+        ds = load_dataset(dataset)
+        summary = validate_dataset(ds)
+    except (DatasetLoadError, DatasetValidationError) as err:
+        console.print(
+            Panel(
+                f"[bold red]Validation Failed[/bold red]\n\n{err}",
+                title="[bold red]Dataset Error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1) from err
+    except Exception as exc:
+        console.print(
+            Panel(
+                f"[bold red]Unexpected Error[/bold red]\n\n{exc}",
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1) from exc
+
+    breakdown = "\n".join(
+        f"  [cyan]{qt}[/cyan]: {count}" for qt, count in summary.query_type_counts.items()
+    )
+
+    summary_text = (
+        f"[bold]Dataset:[/bold] {summary.name}\n"
+        f"[bold]Version:[/bold] {summary.version}\n"
+        f"[bold]Samples:[/bold] {summary.total_samples}\n"
+        f"[bold]Query types:[/bold]\n{breakdown}\n\n"
+        f"[bold green]Dataset is valid.[/bold green]"
+    )
+
+    console.print(
+        Panel(
+            summary_text,
+            title="[bold green]Dataset Validation Summary[/bold green]",
+            border_style="green",
+        )
+    )
 
 
 @app.command()

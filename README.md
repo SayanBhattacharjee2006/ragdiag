@@ -19,7 +19,7 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 
 > [!NOTE]
 > **Status: Under Active Development.**
-> This repository currently contains the core project foundation, domain models, and pipeline adapter contract. The evaluation engine, metrics, LLM judge, and diagnostic components will be delivered in upcoming phases.
+> This repository contains the project foundation, domain models, pipeline adapter contract, and the validated golden dataset system. The evaluation engine, metrics calculation, LLM judge, and diagnostic components will be delivered in subsequent phases.
 
 ---
 
@@ -38,14 +38,94 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 ┌─────────────────────────────────────────────────────────────┐
 │                           RAGDiag                           │
 │                                                             │
-│   1. Execution Harness: QuerySample -> Pipeline             │
-│   2. Metrics Calculation: Retrieval, Generation, Latency    │
-│   3. Root-Cause Diagnosis: Structured Failure Attribution   │
-│   4. Output Models: EvaluationResult                        │
+│   1. Golden Dataset: Validated queries + ground truth       │
+│   2. Execution Harness: QuerySample -> Pipeline (Upcoming)  │
+│   3. Metrics Calculation: Retrieval & Generation (Upcoming) │
+│   4. Root-Cause Diagnosis: Structured Attribution (Upcoming)│
+│   5. Output Models: EvaluationResult                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-The design maintains strict decoupling between the developer's underlying RAG framework (LangChain, LlamaIndex, custom vector stores, etc.) and RAGDiag's evaluation harness through normalized domain abstractions (`RetrievedChunk`, `QuerySample`, `EvaluationResult`).
+The design maintains strict decoupling between the developer's underlying RAG framework (LangChain, LlamaIndex, custom vector stores, etc.) and RAGDiag's evaluation harness through normalized domain abstractions (`RetrievedChunk`, `QuerySample`, `GoldenDataset`, `EvaluationResult`).
+
+---
+
+## Golden Dataset System
+
+RAGDiag requires a golden evaluation dataset containing ground truth answers, relevant chunk references, and categorized query types.
+
+### Query Type Taxonomy
+
+Evaluation samples are categorized using a controlled MVP taxonomy:
+- **`factual`**: Single-fact retrieval and direct lookup queries.
+- **`reasoning`**: Analytical queries requiring synthesis or inference from retrieved context.
+- **`multi-hop`**: Complex queries requiring information joined across multiple disconnected chunks.
+
+### JSON Schema
+
+Datasets are structured as JSON files matching the `GoldenDataset` schema:
+
+```json
+{
+  "name": "synapse_eval_v1",
+  "version": "1.0",
+  "samples": [
+    {
+      "id": "q001",
+      "query": "What is the standard turnaround time for card refund settlements?",
+      "expected_answer": "Standard card refund settlements are credited within 5 to 7 business days.",
+      "relevant_chunk_ids": ["doc_refund_policy_01"],
+      "query_type": "factual"
+    },
+    {
+      "id": "q002",
+      "query": "Why was the customer's recurring payment declined?",
+      "expected_answer": "The auto-debit was declined because the mandate expired.",
+      "relevant_chunk_ids": ["doc_mandates_05"],
+      "query_type": "reasoning"
+    }
+  ]
+}
+```
+
+### Dataset Validation Rules
+
+RAGDiag enforces strict validation to catch dataset mistakes early:
+- Unique sample IDs across the entire dataset.
+- At least one sample per dataset.
+- Non-empty `id`, `query`, and `expected_answer`.
+- Non-empty `relevant_chunk_ids` with at least one valid chunk ID and no duplicates within the same sample.
+- `query_type` must be one of `factual`, `reasoning`, or `multi-hop`.
+
+### Validating a Dataset via CLI
+
+Validate any dataset file before running evaluation:
+
+```bash
+uv run ragdiag validate --dataset examples/basic_dataset.json
+```
+
+Output:
+```text
+Dataset: basic_dataset
+Version: 1.0
+Samples: 5
+Query types:
+  factual: 2
+  reasoning: 2
+  multi-hop: 1
+
+Dataset is valid.
+```
+
+### Loading a Dataset in Python
+
+```python
+from ragdiag.dataset import load_dataset
+
+dataset = load_dataset("examples/basic_dataset.json")
+print(f"Loaded {len(dataset.samples)} samples from {dataset.name} (v{dataset.version})")
+```
 
 ---
 
@@ -71,11 +151,6 @@ RAGDiag uses [`uv`](https://docs.astral.sh/uv/) for fast, reliable virtual envir
    uv pip install -e ".[dev]"
    ```
 
-   Alternatively, using standard `uv run`:
-   ```bash
-   uv run ragdiag --help
-   ```
-
 ---
 
 ## Running Tests and Linting
@@ -95,23 +170,19 @@ uv run ruff format --check .
 
 ---
 
-## CLI Usage (Preview)
-
-Display CLI help:
+## CLI Commands
 
 ```bash
+# Show CLI options
 uv run ragdiag --help
-```
 
-Display CLI version:
-
-```bash
+# Show version
 uv run ragdiag --version
-```
 
-Execute placeholder run command:
+# Validate a golden evaluation dataset
+uv run ragdiag validate --dataset examples/basic_dataset.json
 
-```bash
+# Preview pipeline evaluation run (stub)
 uv run ragdiag run --help
 ```
 
@@ -120,6 +191,7 @@ uv run ragdiag run --help
 ## Roadmap
 
 - [x] **Phase 1: Project Foundation** (Packaging, domain models, pipeline interface, CLI skeleton, test suite)
-- [ ] **Phase 2: Evaluation Metrics** (Retrieval precision/recall, context relevance, answer correctness)
-- [ ] **Phase 3: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes)
-- [ ] **Phase 4: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)
+- [x] **Phase 2: Golden Dataset System** (JSON schema, QueryType taxonomy, loader, validator, CLI validate command)
+- [ ] **Phase 3: Evaluation Metrics** (Retrieval precision/recall, context relevance, answer correctness)
+- [ ] **Phase 4: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes)
+- [ ] **Phase 5: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)
