@@ -290,6 +290,27 @@ class TestDiagnosisEnginePrecedence:
         assert diag.category == FailureCategory.RETRIEVED_BUT_NOT_GROUNDED
         assert diag.confidence == 0.91
 
+    def test_partial_retrieval_at_low_rank_diagnoses_insufficient_context(
+        self, engine: DiagnosisEngine
+    ) -> None:
+        """Expected: [doc_a, doc_b], Retrieved: [doc_x, doc_y, doc_b] -> INSUFFICIENT_CONTEXT."""
+        result = EvaluationResult(
+            query_id="q_multi",
+            query="Multi-hop query",
+            status="completed",
+            expected_chunk_ids=["doc_a", "doc_b"],
+            retrieved_chunks=[
+                RetrievedChunk(id="doc_x", text="text x"),
+                RetrievedChunk(id="doc_y", text="text y"),
+                RetrievedChunk(id="doc_b", text="text b"),
+            ],
+            latency={"retrieval_ms": 20.0},
+            metrics={"precision_at_5": 0.33, "recall_at_5": 0.5},
+        )
+        diag = engine.diagnose(result)
+        assert diag.category == FailureCategory.INSUFFICIENT_CONTEXT
+        assert diag.severity == "warning"
+
     def test_answer_incorrect_precedence(self, engine: DiagnosisEngine) -> None:
         """Grounded=True, but answer_correct=False triggers ANSWER_INCORRECT."""
         result = EvaluationResult(
@@ -297,6 +318,8 @@ class TestDiagnosisEnginePrecedence:
             query="q",
             status="completed",
             expected_chunk_ids=["doc_1"],
+            expected_answer="Refunds take 7 business days.",
+            generated_answer="No refund allowed.",
             retrieved_chunks=[RetrievedChunk(id="doc_1", text="t")],
             latency={"retrieval_ms": 20.0},
             metrics={
@@ -310,6 +333,8 @@ class TestDiagnosisEnginePrecedence:
         diag = engine.diagnose(result)
         assert diag.category == FailureCategory.ANSWER_INCORRECT
         assert diag.confidence == 0.95
+        assert any("Expected answer: Refunds take 7 business days." in ev for ev in diag.evidence)
+        assert any("Generated answer: No refund allowed." in ev for ev in diag.evidence)
 
     def test_latency_outlier_when_quality_passes(self, engine: DiagnosisEngine) -> None:
         """When quality checks pass but latency > threshold, triggers LATENCY_OUTLIER."""
@@ -491,3 +516,74 @@ class TestEvaluatorDiagnosisIntegration:
         assert isinstance(result.diagnosis, DiagnosisResult)
         assert result.diagnosis.category == FailureCategory.UNKNOWN
         assert "Boom" in result.diagnosis.reason
+
+    def test_evaluator_preserves_expected_answer_on_success(self) -> None:
+        """Evaluator populates expected_answer on successful execution."""
+
+        class GoodPipeline(Pipeline):
+            name = "good"
+
+            def retrieve(self, query: str) -> list[RetrievedChunk]:
+                return [RetrievedChunk(id="doc_1", text="t")]
+
+            def generate(self, query: str, chunks: list[RetrievedChunk]) -> str:
+                return "Answer"
+
+        evaluator = Evaluator(k=5)
+        sample = QuerySample(
+            id="q1",
+            query="Query",
+            expected_answer="Expected reference answer.",
+            relevant_chunk_ids=["doc_1"],
+            query_type=QueryType.FACTUAL,
+        )
+        result = evaluator.execute_sample(sample, GoodPipeline())
+        assert result.expected_answer == "Expected reference answer."
+
+    def test_evaluator_preserves_expected_answer_on_retrieval_failure(self) -> None:
+        """Evaluator populates expected_answer when retrieval fails."""
+
+        class FailRetrievalPipeline(Pipeline):
+            name = "fail_retrieval"
+
+            def retrieve(self, query: str) -> list[RetrievedChunk]:
+                raise RuntimeError("Retrieval crash")
+
+            def generate(self, query: str, chunks: list[RetrievedChunk]) -> str:
+                return ""
+
+        evaluator = Evaluator(k=5)
+        sample = QuerySample(
+            id="q1",
+            query="Query",
+            expected_answer="Expected reference answer.",
+            relevant_chunk_ids=["doc_1"],
+            query_type=QueryType.FACTUAL,
+        )
+        result = evaluator.execute_sample(sample, FailRetrievalPipeline())
+        assert result.status == "failed"
+        assert result.expected_answer == "Expected reference answer."
+
+    def test_evaluator_preserves_expected_answer_on_generation_failure(self) -> None:
+        """Evaluator populates expected_answer when generation fails."""
+
+        class FailGenerationPipeline(Pipeline):
+            name = "fail_generation"
+
+            def retrieve(self, query: str) -> list[RetrievedChunk]:
+                return [RetrievedChunk(id="doc_1", text="t")]
+
+            def generate(self, query: str, chunks: list[RetrievedChunk]) -> str:
+                raise RuntimeError("Generation crash")
+
+        evaluator = Evaluator(k=5)
+        sample = QuerySample(
+            id="q1",
+            query="Query",
+            expected_answer="Expected reference answer.",
+            relevant_chunk_ids=["doc_1"],
+            query_type=QueryType.FACTUAL,
+        )
+        result = evaluator.execute_sample(sample, FailGenerationPipeline())
+        assert result.status == "failed"
+        assert result.expected_answer == "Expected reference answer."

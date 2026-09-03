@@ -18,9 +18,9 @@ class DiagnosisEngine:
 
     Follows a strict precedence hierarchy:
     1. Pipeline execution failure (status != 'completed') -> UNKNOWN
-    2. Zero retrieval overlap -> WRONG_CHUNK_RETRIEVED
-    3. Low rank of first relevant chunk -> WRONG_CHUNK_RANK
-    4. Partial context coverage -> INSUFFICIENT_CONTEXT
+    2. Complete retrieval miss (zero overlap) -> WRONG_CHUNK_RETRIEVED
+    3. Partial required context (subset retrieved) -> INSUFFICIENT_CONTEXT
+    4. All required context present but first relevant rank exceeds threshold -> WRONG_CHUNK_RANK
     5. Hallucination / ungrounded answer -> RETRIEVED_BUT_NOT_GROUNDED
     6. Semantic answer inaccuracy -> ANSWER_INCORRECT
     7. Latency outlier (when quality checks pass) -> LATENCY_OUTLIER
@@ -62,7 +62,7 @@ class DiagnosisEngine:
             f"(exceeded threshold {self.latency_threshold_ms:.1f} ms)."
         )
 
-        # 2. Retrieval failure (zero overlap)
+        # 2. Complete retrieval miss (zero overlap)
         retrieval_fail = classify_retrieval_failure(
             result.expected_chunk_ids,
             result.retrieved_chunks,
@@ -73,18 +73,7 @@ class DiagnosisEngine:
                 retrieval_fail.evidence.append(sec_latency_note)
             return retrieval_fail
 
-        # 3. Ranking failure (first relevant chunk beyond threshold)
-        ranking_fail = classify_ranking_failure(
-            result.expected_chunk_ids,
-            result.retrieved_chunks,
-            rank_threshold=self.rank_threshold,
-        )
-        if ranking_fail is not None:
-            if is_latency_outlier:
-                ranking_fail.evidence.append(sec_latency_note)
-            return ranking_fail
-
-        # 4. Insufficient context (partial overlap)
+        # 3. Partial required context (subset retrieved)
         context_fail = classify_context_sufficiency(
             result.expected_chunk_ids,
             result.retrieved_chunks,
@@ -94,6 +83,17 @@ class DiagnosisEngine:
             if is_latency_outlier:
                 context_fail.evidence.append(sec_latency_note)
             return context_fail
+
+        # 4. All required context present but first relevant rank exceeds threshold
+        ranking_fail = classify_ranking_failure(
+            result.expected_chunk_ids,
+            result.retrieved_chunks,
+            rank_threshold=self.rank_threshold,
+        )
+        if ranking_fail is not None:
+            if is_latency_outlier:
+                ranking_fail.evidence.append(sec_latency_note)
+            return ranking_fail
 
         # 5. Grounding failure (hallucination)
         grounding_fail = classify_grounding_failure(
@@ -108,6 +108,7 @@ class DiagnosisEngine:
         # 6. Answer correctness failure
         answer_fail = classify_answer_failure(
             result.metrics,
+            expected_answer=result.expected_answer,
             generated_answer=result.generated_answer,
             judge_error=result.judge_error,
         )

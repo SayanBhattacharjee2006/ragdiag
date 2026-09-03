@@ -34,3 +34,4 @@ class EvaluationResult(BaseModel):
     error: str | None = None
     query_type: str | None = None
     judge_error: str | None = None
+    expected_answer: str | None = None

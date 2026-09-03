@@ -216,8 +216,8 @@ The core differentiator of RAGDiag is its deterministic root-cause diagnosis eng
 
 1. **Pipeline Execution Failure** (`status != 'completed'`) $\to$ `UNKNOWN`
 2. **Total Retrieval Miss** (0 overlap) $\to$ `WRONG_CHUNK_RETRIEVED`
-3. **Low First Relevant Rank** (rank > 3) $\to$ `WRONG_CHUNK_RANK`
-4. **Partial Context Retrieval** (subset retrieved) $\to$ `INSUFFICIENT_CONTEXT`
+3. **Partial Context Retrieval** (subset retrieved) $\to$ `INSUFFICIENT_CONTEXT`
+4. **All Context Retrieved but Ranked Too Low** (rank > 3) $\to$ `WRONG_CHUNK_RANK`
 5. **Hallucination** (`grounded == False`) $\to$ `RETRIEVED_BUT_NOT_GROUNDED`
 6. **Incorrect Answer** (`answer_correct == False`) $\to$ `ANSWER_INCORRECT`
 7. **Latency Outlier** (latency > threshold) $\to$ `LATENCY_OUTLIER`
