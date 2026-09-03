@@ -281,6 +281,51 @@ print(f"Groundedness:       {report.groundedness_rate:.2f}")
 print(f"Diagnosis Counts:   {report.diagnosis_counts}")
 ```
 
+## Diagnostic Intelligence and Evaluation Report
+
+In addition to per-query diagnoses, RAGDiag aggregates results into a structured system-level **`EvaluationReport`** designed for terminal rendering, JSON export, CI gating, and dashboard consumption.
+
+### System-Level Report Features
+
+- **Stable Failure Taxonomy**: All 8 `FailureCategory` values are always present in `diagnosis_counts` (even with count 0) for consistent machine readability and diffing.
+- **Query-Type Analysis**: Evaluates performance independently across `factual`, `reasoning`, and `multi-hop` queries (Precision@K, Recall@K, MRR, Groundedness, Correctness, and category breakdown).
+- **Deterministic Top Failures**: Queries with failures are deterministically ranked by severity (`major` > `warning` > `info`), confidence, category priority, and query ID.
+- **Deterministic Insights**: Factual, rule-based health insights generated without an LLM:
+  - Identifies the weakest query type by recall gap ($\ge 0.10$).
+  - Identifies dominant failure modes ($\ge 30\%$ of failures).
+  - Flags grounding gaps across query types ($\ge 0.10$).
+  - Highlights tail latency and outlier concerns.
+- **JSON Serialization**: Complete, typed Pydantic serialization for downstream tooling.
+
+### Generating Reports via Python API
+
+```python
+from ragdiag import Evaluator, build_report
+from ragdiag.dataset import load_dataset
+from ragdiag.pipeline import load_pipeline
+
+pipeline = load_pipeline("examples/basic_pipeline.py")
+dataset = load_dataset("examples/basic_dataset.json")
+
+evaluator = Evaluator(k=5)
+results = evaluator.evaluate(pipeline, dataset)
+
+# Build system-level report
+report = build_report(
+    results,
+    dataset_name=dataset.name,
+    dataset_version=dataset.version,
+    pipeline_name=pipeline.name,
+    k=5,
+)
+
+print(f"Overall Recall@5: {report.retrieval.mean_recall_at_k:.2f}")
+print(f"Insights: {report.overall_insights}")
+
+# Export to JSON
+json_data = report.model_dump_json(indent=2)
+```
+
 ---
 
 ## CLI Commands
@@ -306,9 +351,9 @@ Output:
 +-----------------------------------------------------------------------------+
 ```
 
-### 2. Run Pipeline Evaluation (Deterministic / Offline)
+### 2. Run Pipeline Evaluation & Diagnosis
 
-By default, evaluation runs completely offline without network calls or API keys:
+Run evaluation and print the diagnostic terminal report:
 
 ```bash
 uv run ragdiag run --pipeline examples/basic_pipeline.py --dataset examples/basic_dataset.json
@@ -316,46 +361,69 @@ uv run ragdiag run --pipeline examples/basic_pipeline.py --dataset examples/basi
 
 Output:
 ```text
-RAGDiag
-------------------------
-Pipeline: basic_pipeline
-Dataset:  basic_dataset
-Queries:  5
-
 Running evaluation...
+
+RAGDiag
+--------------------------------------------
+Pipeline: basic_pipeline
+Dataset:  basic_dataset (v1.0)
+Queries:  5
 
 Evaluation complete.
 
-Retrieval Metrics
-------------------------
-Precision@5:  0.90
-Recall@5:     1.00
-MRR:          0.87
-
-Root Cause Analysis
-------------------------
-PASS:                        5
-Wrong chunk retrieved:       0
-Wrong chunk rank:            0
-Insufficient context:        0
-Retrieved but not grounded:  0
-Answer incorrect:            0
-Latency outlier:             0
-Unknown:                     0
+OVERALL - Retrieval Metrics
+--------------------------------------------
+Precision@5:        0.90
+Recall@5:           1.00
+MRR:                 0.87
 
 Retrieval Latency
 ------------------------
-Mean:   0.01 ms
-P50:    0.01 ms
-P95:    0.01 ms
-P99:    0.01 ms
+Mean:                0.01 ms
+P50:                 0.01 ms
+P95:                 0.02 ms
+P99:                 0.02 ms
+
+FAILURE ANALYSIS (Root Cause Analysis)
+--------------------------------------------
+PASS:                        5
+WRONG_CHUNK_RETRIEVED:       0
+WRONG_CHUNK_RANK:            0
+INSUFFICIENT_CONTEXT:        0
+RETRIEVED_BUT_NOT_GROUNDED:  0
+ANSWER_INCORRECT:            0
+LATENCY_OUTLIER:             0
+UNKNOWN:                     0
+
+QUERY TYPES
+--------------------------------------------
+Factual (2 queries)
+  Recall@5: 1.00  MRR: 1.00
+
+Reasoning (2 queries)
+  Recall@5: 1.00  MRR: 1.00
+
+Multi-hop (1 query)
+  Recall@5: 1.00  MRR: 0.33
+
+INSIGHTS
+--------------------------------------------
+* All evaluated queries passed retrieval, context, and quality checks.
 
 Completed:  5
 Failed:     0
 Total time: 0.00s
 ```
 
-### 3. Run Evaluation with LLM Judge
+### 3. Run Evaluation with JSON Output
+
+Export the complete structured `EvaluationReport` to a JSON file:
+
+```bash
+uv run ragdiag run --pipeline examples/basic_pipeline.py --dataset examples/basic_dataset.json --output results.json
+```
+
+### 4. Run Evaluation with LLM Judge
 
 To enable semantic answer correctness and groundedness evaluation:
 
@@ -405,4 +473,5 @@ uv run ruff format --check .
 - [x] **Phase 4: Retrieval Metrics & Latency Analysis** (Precision@K, Recall@K, Reciprocal Rank, MRR, percentile latency statistics, aggregate report)
 - [x] **Phase 5: LLM Judge** (Semantic answer correctness and context groundedness using structured outputs, error isolation, provider decoupling)
 - [x] **Phase 6: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes, evidence generation, query-type breakdowns)
-- [ ] **Phase 7: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)
+- [x] **Phase 7: Diagnostic Intelligence and Final Evaluation Report** (System-level EvaluationReport, query-type analysis, top failures, rule-based insights, JSON export)
+- [ ] **Phase 8: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)

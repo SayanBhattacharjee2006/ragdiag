@@ -366,11 +366,12 @@ class TestDiagnosisEnginePrecedence:
                 "grounded": True,
                 "answer_correct": True,
             },
+            judge_error=None,
         )
         diag = engine.diagnose(result)
         assert diag.category == FailureCategory.PASS
         assert diag.severity == "info"
-        assert "Query passed all" in diag.reason
+        assert "Query passed all retrieval, grounding, correctness" in diag.reason
 
     def test_pass_without_judge_states_semantic_not_evaluated(
         self, engine: DiagnosisEngine
@@ -384,10 +385,64 @@ class TestDiagnosisEnginePrecedence:
             retrieved_chunks=[RetrievedChunk(id="doc_1", text="t")],
             latency={"retrieval_ms": 15.0},
             metrics={"precision_at_5": 1.0, "recall_at_5": 1.0},
+            judge_error=None,
         )
+        assert "answer_correct" not in result.metrics
         diag = engine.diagnose(result)
         assert diag.category == FailureCategory.PASS
         assert "semantic answer quality was not evaluated" in diag.reason
+        assert "no judge was configured" in diag.reason
+
+    def test_pass_judge_configured_but_fails(self, engine: DiagnosisEngine) -> None:
+        """When judge fails but retrieval passes, PASS explains that configured judge failed."""
+        result = EvaluationResult(
+            query_id="q1",
+            query="q",
+            status="completed",
+            expected_chunk_ids=["doc_1"],
+            retrieved_chunks=[RetrievedChunk(id="doc_1", text="t")],
+            latency={"retrieval_ms": 15.0},
+            metrics={"precision_at_5": 1.0, "recall_at_5": 1.0},
+            judge_error="judge failed: TimeoutError: OpenAI API timed out",
+        )
+        assert "answer_correct" not in result.metrics
+        diag = engine.diagnose(result)
+        assert diag.category == FailureCategory.PASS
+        assert "configured judge failed" in diag.reason
+        assert "no judge was configured" not in diag.reason
+        assert any("Judge error: judge failed: TimeoutError" in ev for ev in diag.evidence)
+
+    def test_judge_failure_combined_with_retrieval_failure(self, engine: DiagnosisEngine) -> None:
+        """Retrieval failure remains primary root cause even if judge error exists."""
+        result = EvaluationResult(
+            query_id="q1",
+            query="q",
+            status="completed",
+            expected_chunk_ids=["doc_1"],
+            retrieved_chunks=[RetrievedChunk(id="doc_wrong", text="t")],
+            latency={"retrieval_ms": 15.0},
+            metrics={"precision_at_5": 0.0, "recall_at_5": 0.0},
+            judge_error="judge failed: 500 Internal Server Error",
+        )
+        diag = engine.diagnose(result)
+        assert diag.category == FailureCategory.WRONG_CHUNK_RETRIEVED
+
+    def test_judge_failure_combined_with_latency(self, engine: DiagnosisEngine) -> None:
+        """When latency outlier occurs with judge error, category is LATENCY_OUTLIER."""
+        result = EvaluationResult(
+            query_id="q1",
+            query="q",
+            status="completed",
+            expected_chunk_ids=["doc_1"],
+            retrieved_chunks=[RetrievedChunk(id="doc_1", text="t")],
+            latency={"retrieval_ms": 1500.0},
+            metrics={"precision_at_5": 1.0, "recall_at_5": 1.0},
+            judge_error="judge failed: RateLimitError: quota exceeded",
+        )
+        diag = engine.diagnose(result)
+        assert diag.category == FailureCategory.LATENCY_OUTLIER
+        assert diag.category != FailureCategory.PASS
+        assert any("Judge error: judge failed: RateLimitError" in ev for ev in diag.evidence)
 
 
 # ==============================================================================

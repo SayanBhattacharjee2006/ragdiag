@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from ragdiag import (
     DiagnosisEngine,
     DiagnosisResult,
+    EvaluationReport,
     EvaluationResult,
     FailureCategory,
     GoldenDataset,
@@ -16,8 +17,10 @@ from ragdiag import (
     QuerySample,
     QueryType,
     RetrievedChunk,
+    TopFailure,
     __version__,
     aggregate_metrics,
+    build_report,
     mean_reciprocal_rank,
     precision_at_k,
     recall_at_k,
@@ -40,6 +43,9 @@ def test_public_imports() -> None:
     assert DiagnosisEngine is not None
     assert DiagnosisResult is not None
     assert FailureCategory is not None
+    assert EvaluationReport is not None
+    assert TopFailure is not None
+    assert build_report is not None
     assert precision_at_k is not None
     assert recall_at_k is not None
     assert reciprocal_rank is not None

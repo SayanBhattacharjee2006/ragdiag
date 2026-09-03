@@ -14,6 +14,7 @@ from ragdiag.models.dataset import GoldenDataset
 from ragdiag.models.result import EvaluationResult
 from ragdiag.models.sample import QuerySample, QueryType
 from ragdiag.pipeline.base import Pipeline
+from ragdiag.reporting import EvaluationReport, TopFailure, build_report
 from ragdiag.runner.evaluator import Evaluator
 
 __version__ = "0.1.0"
@@ -21,6 +22,7 @@ __version__ = "0.1.0"
 __all__ = [
     "DiagnosisEngine",
     "DiagnosisResult",
+    "EvaluationReport",
     "EvaluationResult",
     "Evaluator",
     "FailureCategory",
@@ -32,8 +34,10 @@ __all__ = [
     "QuerySample",
     "QueryType",
     "RetrievedChunk",
+    "TopFailure",
     "__version__",
     "aggregate_metrics",
+    "build_report",
     "mean_reciprocal_rank",
     "precision_at_k",
     "recall_at_k",

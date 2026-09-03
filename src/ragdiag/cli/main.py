@@ -13,7 +13,6 @@ import ragdiag
 from ragdiag.dataset.exceptions import DatasetLoadError, DatasetValidationError
 from ragdiag.dataset.loader import load_dataset
 from ragdiag.dataset.validator import validate_dataset
-from ragdiag.metrics.aggregation import aggregate_metrics
 from ragdiag.pipeline.exceptions import PipelineError
 from ragdiag.pipeline.loader import load_pipeline
 from ragdiag.runner.evaluator import Evaluator
@@ -155,6 +154,14 @@ def run(
             help="Model identifier for the LLM judge.",
         ),
     ] = "gpt-4o-mini",
+    output: Annotated[
+        str | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Path to save evaluation report as JSON.",
+        ),
+    ] = None,
 ) -> None:
     """Run RAG evaluation against a pipeline and dataset."""
     c = get_console()
@@ -211,11 +218,6 @@ def run(
         )
         raise typer.Exit(code=1) from exc
 
-    c.print("[bold cyan]RAGDiag[/bold cyan]")
-    c.print("-" * 24)
-    c.print(f"Pipeline: [bold]{loaded_pipeline.name}[/bold]")
-    c.print(f"Dataset:  [bold]{loaded_dataset.name}[/bold]")
-    c.print(f"Queries:  [bold]{len(loaded_dataset.samples)}[/bold]\n")
     c.print("[dim]Running evaluation...[/dim]\n")
 
     evaluator = Evaluator(k=5, judge=judge_instance)
@@ -223,85 +225,24 @@ def run(
     results = evaluator.evaluate(loaded_pipeline, loaded_dataset)
     total_elapsed = time.perf_counter() - start_time
 
-    report = aggregate_metrics(results, k=5)
+    from ragdiag.reporting import build_report, render_terminal_report
 
-    c.print("[bold green]Evaluation complete.[/bold green]\n")
-    c.print("[bold]Retrieval Metrics[/bold]")
-    c.print("-" * 24)
-    c.print(f"Precision@{report.k}:  {report.mean_precision_at_k:.2f}")
-    c.print(f"Recall@{report.k}:     {report.mean_recall_at_k:.2f}")
-    c.print(f"MRR:          {report.mrr:.2f}\n")
+    report = build_report(
+        results,
+        dataset_name=loaded_dataset.name,
+        dataset_version=loaded_dataset.version,
+        pipeline_name=loaded_pipeline.name,
+        k=5,
+    )
 
-    if report.judged_queries > 0 or report.judge_failures > 0:
-        judge_name = judge or "llm"
-        c.print(f"[bold]Semantic Metrics (Judge: {judge_name})[/bold]")
-        c.print("-" * 24)
-        c_val = (
-            report.answer_correctness_rate if report.answer_correctness_rate is not None else 0.0
-        )
-        g_val = report.groundedness_rate if report.groundedness_rate is not None else 0.0
-        c.print(f"Answer correctness: {c_val:.2f}")
-        c.print(f"Groundedness:       {g_val:.2f}")
-        if report.mean_judge_confidence is not None:
-            c.print(f"Judge confidence:   {report.mean_judge_confidence:.2f}")
-        if report.judge_failures > 0:
-            c.print(f"Judge failures:     [red]{report.judge_failures}[/red]")
-        c.print()
+    render_terminal_report(report, c, total_elapsed=total_elapsed)
 
-    c.print("[bold]Root Cause Analysis[/bold]")
-    c.print("-" * 24)
-    category_labels = [
-        ("PASS", "PASS:"),
-        ("WRONG_CHUNK_RETRIEVED", "Wrong chunk retrieved:"),
-        ("WRONG_CHUNK_RANK", "Wrong chunk rank:"),
-        ("INSUFFICIENT_CONTEXT", "Insufficient context:"),
-        ("RETRIEVED_BUT_NOT_GROUNDED", "Retrieved but not grounded:"),
-        ("ANSWER_INCORRECT", "Answer incorrect:"),
-        ("LATENCY_OUTLIER", "Latency outlier:"),
-        ("UNKNOWN", "Unknown:"),
-    ]
-    for cat_key, label in category_labels:
-        cnt = report.diagnosis_counts.get(cat_key, 0)
-        c.print(f"{label:<28} {cnt}")
-    c.print()
-
-    failing_results = [
-        r
-        for r in results
-        if (
-            (hasattr(r.diagnosis, "category") and str(r.diagnosis.category) != "PASS")
-            or (isinstance(r.diagnosis, dict) and r.diagnosis.get("category") != "PASS")
-        )
-    ]
-    if failing_results:
-        c.print("[bold]Top Failures[/bold]")
-        c.print("-" * 24)
-        for r in failing_results[:5]:
-            cat_name = (
-                r.diagnosis.category.value
-                if hasattr(r.diagnosis.category, "value")
-                else str(r.diagnosis.category)
-            )
-            reason = (
-                r.diagnosis.reason
-                if hasattr(r.diagnosis, "reason")
-                else r.diagnosis.get("reason", "")
-            )
-            c.print(f"[bold]{r.query_id}[/bold]  [red]{cat_name}[/red]")
-            c.print(f"{reason}")
-            if hasattr(r.diagnosis, "evidence") and r.diagnosis.evidence:
-                first_ev = r.diagnosis.evidence[0]
-                c.print(f"[dim]{first_ev}[/dim]")
-            c.print()
-
-    c.print("[bold]Retrieval Latency[/bold]")
-    c.print("-" * 24)
-    c.print(f"Mean:   {report.retrieval_latency.mean_ms:.2f} ms")
-    c.print(f"P50:    {report.retrieval_latency.p50_ms:.2f} ms")
-    c.print(f"P95:    {report.retrieval_latency.p95_ms:.2f} ms")
-    c.print(f"P99:    {report.retrieval_latency.p99_ms:.2f} ms\n")
-
-    fail_style = "red" if report.failed_queries > 0 else "green"
-    c.print(f"Completed:  [green]{report.completed_queries}[/green]")
-    c.print(f"Failed:     [{fail_style}]{report.failed_queries}[/{fail_style}]")
-    c.print(f"Total time: {total_elapsed:.2f}s")
+    if output:
+        try:
+            json_str = report.model_dump_json(indent=2)
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(json_str)
+            c.print(f"\n[bold green]Report written to:[/bold green] {output}")
+        except OSError as exc:
+            c.print(f"\n[bold red]Failed to write output file '{output}':[/bold red] {exc}")
+            raise typer.Exit(code=1) from exc

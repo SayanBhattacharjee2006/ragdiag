@@ -124,11 +124,23 @@ class DiagnosisEngine:
                 latency_threshold_ms=self.latency_threshold_ms,
             )
             if latency_fail is not None:
+                if result.judge_error is not None:
+                    latency_fail.evidence.append(f"Judge error: {result.judge_error}")
                 return latency_fail
 
         # 8. PASS
-        has_judge = "answer_correct" in result.metrics and result.judge_error is None
-        if has_judge:
+        if result.judge_error is not None:
+            reason = (
+                "Retrieval checks passed, but semantic answer quality could not "
+                "be evaluated because the configured judge failed."
+            )
+            evidence = [
+                f"Recall@{self.k}: {result.metrics.get(f'recall_at_{self.k}', 1.0)}",
+                f"Precision@{self.k}: {result.metrics.get(f'precision_at_{self.k}', 1.0)}",
+                f"Judge error: {result.judge_error}",
+                f"Retrieval latency: {retrieval_ms:.1f} ms",
+            ]
+        elif "answer_correct" in result.metrics:
             reason = "Query passed all retrieval, grounding, correctness, and latency checks."
             evidence = [
                 f"Recall@{self.k}: {result.metrics.get(f'recall_at_{self.k}', 1.0)}",
