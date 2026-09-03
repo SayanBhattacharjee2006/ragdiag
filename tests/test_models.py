@@ -4,7 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from ragdiag import (
+    DiagnosisEngine,
+    DiagnosisResult,
     EvaluationResult,
+    FailureCategory,
     GoldenDataset,
     Judge,
     JudgeResult,
@@ -34,6 +37,9 @@ def test_public_imports() -> None:
     assert Judge is not None
     assert JudgeResult is not None
     assert OpenAIJudge is not None
+    assert DiagnosisEngine is not None
+    assert DiagnosisResult is not None
+    assert FailureCategory is not None
     assert precision_at_k is not None
     assert recall_at_k is not None
     assert reciprocal_rank is not None

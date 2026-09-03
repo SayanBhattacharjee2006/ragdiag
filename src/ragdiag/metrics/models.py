@@ -69,3 +69,6 @@ class AggregateEvaluationReport(BaseModel):
     groundedness_rate: float | None = None
     mean_judge_confidence: float | None = None
     judge_latency: LatencySummary | None = None
+    diagnosis_counts: dict[str, int] = Field(default_factory=dict)
+    diagnosis_by_query_type: dict[str, dict[str, int]] = Field(default_factory=dict)
+    failure_count: int = 0

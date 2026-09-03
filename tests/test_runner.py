@@ -184,10 +184,8 @@ def test_successful_execution(single_sample: QuerySample) -> None:
     assert result.metrics["recall_at_5"] == 1.0
     assert result.metrics["reciprocal_rank"] == 1.0
 
-    # Verify future metrics and diagnosis are NOT yet populated
-    assert "groundedness" not in result.metrics
-    assert "answer_correctness" not in result.metrics
-    assert result.diagnosis == {}
+    # Verify diagnosis populated
+    assert result.diagnosis.category == "PASS"
 
     # Check query_type preservation
     assert result.query_type == "factual"

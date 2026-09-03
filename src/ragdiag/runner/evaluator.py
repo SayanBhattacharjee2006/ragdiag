@@ -2,6 +2,8 @@
 
 import time
 
+from ragdiag.diagnosis.classifier import DiagnosisEngine
+from ragdiag.diagnosis.models import DiagnosisResult, FailureCategory
 from ragdiag.judges.base import Judge
 from ragdiag.metrics.retrieval import compute_retrieval_metrics
 from ragdiag.models.chunk import RetrievedChunk
@@ -17,19 +19,27 @@ class Evaluator:
     Executes each query sample sequentially, records retrieval and generation
     latencies in milliseconds, captures raw evidence (chunks and answers),
     calculates deterministic retrieval metrics (Precision@K, Recall@K, Reciprocal Rank),
-    optionally invokes a semantic LLM judge, and isolates errors on a per-sample
-    basis so that individual query failures never abort the overall evaluation run.
+    optionally invokes a semantic LLM judge, assigns root-cause failure diagnoses,
+    and isolates errors on a per-sample basis so that individual query failures
+    never abort the overall evaluation run.
     """
 
-    def __init__(self, k: int = 5, judge: Judge | None = None) -> None:
+    def __init__(
+        self,
+        k: int = 5,
+        judge: Judge | None = None,
+        diagnosis_engine: DiagnosisEngine | None = None,
+    ) -> None:
         """Initialize the Evaluator.
 
         Args:
             k: The rank depth cutoff K for retrieval metrics (default: 5).
             judge: Optional `Judge` instance for semantic evaluation (default: None).
+            diagnosis_engine: Optional `DiagnosisEngine` for root-cause diagnosis.
         """
         self.k = k
         self.judge = judge
+        self.diagnosis_engine = diagnosis_engine or DiagnosisEngine(k=k)
 
     def evaluate(
         self,
@@ -95,22 +105,24 @@ class Evaluator:
         except Exception as exc:
             if retrieval_ms == 0.0:
                 retrieval_ms = (time.perf_counter() - retrieval_start) * 1000.0
-            return EvaluationResult(
-                query_id=sample.id,
-                query=sample.query,
-                expected_chunk_ids=sample.relevant_chunk_ids,
-                retrieved_chunks=[],
-                generated_answer=None,
-                metrics={},
-                diagnosis={},
-                latency={
-                    "retrieval_ms": round(retrieval_ms, 3),
-                    "generation_ms": 0.0,
-                    "total_ms": round(retrieval_ms, 3),
-                },
-                status="failed",
-                error=f"retrieval failed: {type(exc).__name__}: {exc}",
-                query_type=query_type_val,
+            return self._diagnose_result(
+                EvaluationResult(
+                    query_id=sample.id,
+                    query=sample.query,
+                    expected_chunk_ids=sample.relevant_chunk_ids,
+                    retrieved_chunks=[],
+                    generated_answer=None,
+                    metrics={},
+                    diagnosis={},
+                    latency={
+                        "retrieval_ms": round(retrieval_ms, 3),
+                        "generation_ms": 0.0,
+                        "total_ms": round(retrieval_ms, 3),
+                    },
+                    status="failed",
+                    error=f"retrieval failed: {type(exc).__name__}: {exc}",
+                    query_type=query_type_val,
+                )
             )
 
         # Stage 2: Generation
@@ -127,22 +139,24 @@ class Evaluator:
             if generation_ms == 0.0:
                 generation_ms = (time.perf_counter() - generation_start) * 1000.0
             total_ms = retrieval_ms + generation_ms
-            return EvaluationResult(
-                query_id=sample.id,
-                query=sample.query,
-                expected_chunk_ids=sample.relevant_chunk_ids,
-                retrieved_chunks=retrieved_chunks,
-                generated_answer=None,
-                metrics={},
-                diagnosis={},
-                latency={
-                    "retrieval_ms": round(retrieval_ms, 3),
-                    "generation_ms": round(generation_ms, 3),
-                    "total_ms": round(total_ms, 3),
-                },
-                status="failed",
-                error=f"generation failed: {type(exc).__name__}: {exc}",
-                query_type=query_type_val,
+            return self._diagnose_result(
+                EvaluationResult(
+                    query_id=sample.id,
+                    query=sample.query,
+                    expected_chunk_ids=sample.relevant_chunk_ids,
+                    retrieved_chunks=retrieved_chunks,
+                    generated_answer=None,
+                    metrics={},
+                    diagnosis={},
+                    latency={
+                        "retrieval_ms": round(retrieval_ms, 3),
+                        "generation_ms": round(generation_ms, 3),
+                        "total_ms": round(total_ms, 3),
+                    },
+                    status="failed",
+                    error=f"generation failed: {type(exc).__name__}: {exc}",
+                    query_type=query_type_val,
+                )
             )
 
         # Stage 3: Completed Execution
@@ -185,17 +199,33 @@ class Evaluator:
                 latency["judge_ms"] = round(judge_ms, 3)
                 judge_error = f"judge failed: {type(exc).__name__}: {exc}"
 
-        return EvaluationResult(
-            query_id=sample.id,
-            query=sample.query,
-            expected_chunk_ids=sample.relevant_chunk_ids,
-            retrieved_chunks=retrieved_chunks,
-            generated_answer=generated_answer,
-            metrics=metrics,
-            diagnosis={},
-            latency=latency,
-            status="completed",
-            error=None,
-            query_type=query_type_val,
-            judge_error=judge_error,
+        return self._diagnose_result(
+            EvaluationResult(
+                query_id=sample.id,
+                query=sample.query,
+                expected_chunk_ids=sample.relevant_chunk_ids,
+                retrieved_chunks=retrieved_chunks,
+                generated_answer=generated_answer,
+                metrics=metrics,
+                diagnosis={},
+                latency=latency,
+                status="completed",
+                error=None,
+                query_type=query_type_val,
+                judge_error=judge_error,
+            )
         )
+
+    def _diagnose_result(self, result: EvaluationResult) -> EvaluationResult:
+        """Assign diagnostic classification to an EvaluationResult safely."""
+        try:
+            result.diagnosis = self.diagnosis_engine.diagnose(result)
+        except Exception as exc:
+            result.diagnosis = DiagnosisResult(
+                category=FailureCategory.UNKNOWN,
+                severity="major",
+                confidence=0.0,
+                reason=f"Diagnosis engine error: {type(exc).__name__}: {exc}",
+                evidence=[str(exc)],
+            )
+        return result

@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, Field
 
+from ragdiag.diagnosis.models import DiagnosisResult
 from ragdiag.models.chunk import RetrievedChunk
 
 
@@ -27,7 +28,7 @@ class EvaluationResult(BaseModel):
     retrieved_chunks: list[RetrievedChunk] = Field(default_factory=list)
     generated_answer: str | None = None
     metrics: dict[str, object] = Field(default_factory=dict)
-    diagnosis: dict[str, object] = Field(default_factory=dict)
+    diagnosis: DiagnosisResult | dict[str, object] = Field(default_factory=dict)
     latency: dict[str, float] = Field(default_factory=dict)
     status: str = "completed"
     error: str | None = None

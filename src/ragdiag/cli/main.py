@@ -248,6 +248,52 @@ def run(
             c.print(f"Judge failures:     [red]{report.judge_failures}[/red]")
         c.print()
 
+    c.print("[bold]Root Cause Analysis[/bold]")
+    c.print("-" * 24)
+    category_labels = [
+        ("PASS", "PASS:"),
+        ("WRONG_CHUNK_RETRIEVED", "Wrong chunk retrieved:"),
+        ("WRONG_CHUNK_RANK", "Wrong chunk rank:"),
+        ("INSUFFICIENT_CONTEXT", "Insufficient context:"),
+        ("RETRIEVED_BUT_NOT_GROUNDED", "Retrieved but not grounded:"),
+        ("ANSWER_INCORRECT", "Answer incorrect:"),
+        ("LATENCY_OUTLIER", "Latency outlier:"),
+        ("UNKNOWN", "Unknown:"),
+    ]
+    for cat_key, label in category_labels:
+        cnt = report.diagnosis_counts.get(cat_key, 0)
+        c.print(f"{label:<28} {cnt}")
+    c.print()
+
+    failing_results = [
+        r
+        for r in results
+        if (
+            (hasattr(r.diagnosis, "category") and str(r.diagnosis.category) != "PASS")
+            or (isinstance(r.diagnosis, dict) and r.diagnosis.get("category") != "PASS")
+        )
+    ]
+    if failing_results:
+        c.print("[bold]Top Failures[/bold]")
+        c.print("-" * 24)
+        for r in failing_results[:5]:
+            cat_name = (
+                r.diagnosis.category.value
+                if hasattr(r.diagnosis.category, "value")
+                else str(r.diagnosis.category)
+            )
+            reason = (
+                r.diagnosis.reason
+                if hasattr(r.diagnosis, "reason")
+                else r.diagnosis.get("reason", "")
+            )
+            c.print(f"[bold]{r.query_id}[/bold]  [red]{cat_name}[/red]")
+            c.print(f"{reason}")
+            if hasattr(r.diagnosis, "evidence") and r.diagnosis.evidence:
+                first_ev = r.diagnosis.evidence[0]
+                c.print(f"[dim]{first_ev}[/dim]")
+            c.print()
+
     c.print("[bold]Retrieval Latency[/bold]")
     c.print("-" * 24)
     c.print(f"Mean:   {report.retrieval_latency.mean_ms:.2f} ms")

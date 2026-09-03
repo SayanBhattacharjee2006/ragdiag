@@ -15,11 +15,11 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 - Did the generator hallucinate despite having the necessary context?
 - Where is the latency bottleneck occurring?
 
-**RAGDiag** solves this problem by executing evaluation datasets against custom RAG pipelines, computing deterministic retrieval metrics, evaluating semantic answer correctness and context groundedness via an isolated LLM judge, and categorizing structured failure modes.
+**RAGDiag** is the first developer tool designed to answer **"Why did this RAG query fail?"** by executing evaluation datasets against custom RAG pipelines, computing deterministic retrieval metrics, evaluating semantic quality via an isolated LLM judge, and attributing structured, evidence-based root-cause failure modes.
 
 > [!NOTE]
 > **Status: Under Active Development.**
-> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, deterministic retrieval metrics & latency analysis, and the provider-independent LLM Judge system (Phase 5). Root-cause diagnosis and multi-pipeline comparison will be delivered in subsequent phases.
+> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, deterministic retrieval metrics & latency analysis, provider-independent LLM Judge system, and the **Root-Cause Diagnosis Engine** (Phase 6). Multi-pipeline comparison will be delivered in the next phase.
 
 ---
 
@@ -43,7 +43,7 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 │   2. Execution Engine: Evaluator orchestrates queries       │
 │   3. Metrics Layer: Precision@K, Recall@K, MRR, Latency     │
 │   4. LLM Judge: Semantic Answer Correctness & Groundedness  │
-│   5. Root-Cause Diagnosis: Structured Attribution (Upcoming)│
+│   5. Diagnosis Engine: Deterministic Root-Cause Attribution │
 │   6. Output Models: EvaluationResult, AggregateReport       │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -192,19 +192,54 @@ A judge failure (network timeout, rate limit, authentication error) does **not**
 
 ---
 
+## Root-Cause Diagnosis Engine
+
+The core differentiator of RAGDiag is its deterministic root-cause diagnosis engine. Instead of asking a second generic LLM to invent an explanation, RAGDiag applies an explainable decision hierarchy over the captured evidence.
+
+> [!NOTE]
+> RAGDiag identifies the most likely primary failure category from the concrete evidence captured during evaluation.
+
+### Controlled Taxonomy (`FailureCategory`)
+
+| Category | Description | Severity |
+| :--- | :--- | :--- |
+| **`PASS`** | Query completed and passed all retrieval, context, semantic, and latency checks. | `info` |
+| **`WRONG_CHUNK_RETRIEVED`** | Retriever returned chunks, but none of the expected relevant chunks were present. | `major` |
+| **`WRONG_CHUNK_RANK`** | Relevant chunks were retrieved, but the first relevant chunk appeared beyond the acceptable rank threshold (default: rank > 3). | `warning` |
+| **`INSUFFICIENT_CONTEXT`** | Multiple context chunks were required, but only a partial subset was retrieved. | `warning` |
+| **`RETRIEVED_BUT_NOT_GROUNDED`** | Relevant context was retrieved, but the LLM answer contained claims unsupported by the context (hallucination). | `major` |
+| **`ANSWER_INCORRECT`** | Relevant context was retrieved and answer was grounded, but the answer contradicted or failed to answer the expected answer. | `major` |
+| **`LATENCY_OUTLIER`** | All retrieval and quality checks passed, but retrieval latency exceeded the threshold (default: 1000ms). | `warning` |
+| **`UNKNOWN`** | Pipeline execution failure or unclassifiable error. | `major` |
+
+### Precedence Hierarchy
+
+1. **Pipeline Execution Failure** (`status != 'completed'`) $\to$ `UNKNOWN`
+2. **Total Retrieval Miss** (0 overlap) $\to$ `WRONG_CHUNK_RETRIEVED`
+3. **Low First Relevant Rank** (rank > 3) $\to$ `WRONG_CHUNK_RANK`
+4. **Partial Context Retrieval** (subset retrieved) $\to$ `INSUFFICIENT_CONTEXT`
+5. **Hallucination** (`grounded == False`) $\to$ `RETRIEVED_BUT_NOT_GROUNDED`
+6. **Incorrect Answer** (`answer_correct == False`) $\to$ `ANSWER_INCORRECT`
+7. **Latency Outlier** (latency > threshold) $\to$ `LATENCY_OUTLIER`
+8. **Pass** (all checks passed) $\to$ `PASS`
+
+*When a quality failure coincides with high latency, the quality failure is preserved as primary and the latency outlier is recorded as secondary evidence.*
+
+---
+
 ## Evaluation Execution Engine
 
 The `Evaluator` runs a pipeline against a `GoldenDataset`:
-1. **Retrieval**: Executes `pipeline.retrieve(query)`, validates `list[RetrievedChunk]` output, and records retrieval latency (`retrieval_ms`).
-2. **Generation**: If retrieval succeeds, executes `pipeline.generate(query, chunks)`, validates string output, and records generation latency (`generation_ms`).
+1. **Retrieval**: Executes `pipeline.retrieve(query)`, validates output, and records retrieval latency (`retrieval_ms`).
+2. **Generation**: Executes `pipeline.generate(query, chunks)`, validates string output, and records generation latency (`generation_ms`).
 3. **Metric Calculation**: Computes per-query retrieval metrics (`precision_at_5`, `recall_at_5`, `reciprocal_rank`).
 4. **Semantic Evaluation (Optional)**: If a `Judge` is configured, evaluates semantic correctness and groundedness, recording `judge_ms`.
-5. **Error Isolation**: Catches exceptions per query without aborting subsequent queries.
-6. **Evidence Capture**: Retains retrieved chunks, answers, status (`completed` / `failed`), errors, and latency breakdowns in `EvaluationResult`.
+5. **Root-Cause Diagnosis**: Evaluates `DiagnosisEngine.diagnose(result)` to attach a structured `DiagnosisResult` to every query.
+6. **Error Isolation**: Catches exceptions per query without aborting subsequent queries.
 
 ### Running Evaluation via Python API
 
-#### 1. Deterministic Evaluation (No API Key Required)
+#### 1. Deterministic Evaluation & Diagnosis (No API Key Required)
 
 ```python
 from ragdiag import Evaluator, aggregate_metrics
@@ -221,6 +256,7 @@ report = aggregate_metrics(results, k=5)
 print(f"Precision@5: {report.mean_precision_at_k:.2f}")
 print(f"Recall@5:    {report.mean_recall_at_k:.2f}")
 print(f"MRR:         {report.mrr:.2f}")
+print(f"Diagnosis:   {report.diagnosis_counts}")
 ```
 
 #### 2. Evaluation with OpenAI Judge
@@ -231,10 +267,9 @@ from ragdiag import Evaluator, OpenAIJudge, aggregate_metrics
 from ragdiag.dataset import load_dataset
 from ragdiag.pipeline import load_pipeline
 
-# Ensure OPENAI_API_KEY is set
 judge = OpenAIJudge(model="gpt-4o-mini")
-
 evaluator = Evaluator(k=5, judge=judge)
+
 results = evaluator.evaluate(
     pipeline=load_pipeline("examples/basic_pipeline.py"),
     dataset=load_dataset("examples/basic_dataset.json"),
@@ -243,7 +278,7 @@ results = evaluator.evaluate(
 report = aggregate_metrics(results, k=5)
 print(f"Answer Correctness: {report.answer_correctness_rate:.2f}")
 print(f"Groundedness:       {report.groundedness_rate:.2f}")
-print(f"Mean Confidence:    {report.mean_judge_confidence:.2f}")
+print(f"Diagnosis Counts:   {report.diagnosis_counts}")
 ```
 
 ---
@@ -297,12 +332,23 @@ Precision@5:  0.90
 Recall@5:     1.00
 MRR:          0.87
 
+Root Cause Analysis
+------------------------
+PASS:                        5
+Wrong chunk retrieved:       0
+Wrong chunk rank:            0
+Insufficient context:        0
+Retrieved but not grounded:  0
+Answer incorrect:            0
+Latency outlier:             0
+Unknown:                     0
+
 Retrieval Latency
 ------------------------
 Mean:   0.01 ms
 P50:    0.01 ms
 P95:    0.01 ms
-P99:    0.02 ms
+P99:    0.01 ms
 
 Completed:  5
 Failed:     0
@@ -316,42 +362,6 @@ To enable semantic answer correctness and groundedness evaluation:
 ```bash
 export OPENAI_API_KEY="sk-..."
 uv run ragdiag run --pipeline examples/basic_pipeline.py --dataset examples/basic_dataset.json --judge openai --model gpt-4o-mini
-```
-
-Output:
-```text
-RAGDiag
-------------------------
-Pipeline: basic_pipeline
-Dataset:  basic_dataset
-Queries:  5
-
-Running evaluation...
-
-Evaluation complete.
-
-Retrieval Metrics
-------------------------
-Precision@5:  0.90
-Recall@5:     1.00
-MRR:          0.87
-
-Semantic Metrics (Judge: openai)
-------------------------
-Answer correctness: 1.00
-Groundedness:       1.00
-Judge confidence:   0.95
-
-Retrieval Latency
-------------------------
-Mean:   0.01 ms
-P50:    0.01 ms
-P95:    0.01 ms
-P99:    0.02 ms
-
-Completed:  5
-Failed:     0
-Total time: 1.25s
 ```
 
 ---
@@ -394,5 +404,5 @@ uv run ruff format --check .
 - [x] **Phase 3: Evaluation Execution Engine** (Pipeline dynamic loader, Evaluator lifecycle, latency tracking, error isolation, CLI run command)
 - [x] **Phase 4: Retrieval Metrics & Latency Analysis** (Precision@K, Recall@K, Reciprocal Rank, MRR, percentile latency statistics, aggregate report)
 - [x] **Phase 5: LLM Judge** (Semantic answer correctness and context groundedness using structured outputs, error isolation, provider decoupling)
-- [ ] **Phase 6: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes)
+- [x] **Phase 6: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes, evidence generation, query-type breakdowns)
 - [ ] **Phase 7: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)

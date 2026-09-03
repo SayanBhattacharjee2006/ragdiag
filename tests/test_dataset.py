@@ -382,6 +382,8 @@ def test_cli_run_success() -> None:
     assert "Precision@5:" in result.output
     assert "Recall@5:" in result.output
     assert "MRR:" in result.output
+    assert "Root Cause Analysis" in result.output
+    assert "PASS:" in result.output
     assert "Retrieval Latency" in result.output
     assert "Mean:" in result.output
     assert "P50:" in result.output

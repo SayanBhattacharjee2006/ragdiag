@@ -45,6 +45,32 @@ def aggregate_metrics(
     completed = [r for r in results if r.status == "completed"]
     failed = total - len(completed)
 
+    # Aggregate diagnosis categories across all results (completed and failed)
+    diagnosis_counts: dict[str, int] = {}
+    diagnosis_by_query_type: dict[str, dict[str, int]] = {}
+    failure_count = 0
+
+    for r in results:
+        cat_str: str | None = None
+        if hasattr(r.diagnosis, "category"):
+            cat_val = r.diagnosis.category
+            cat_str = cat_val.value if hasattr(cat_val, "value") else str(cat_val)
+        elif isinstance(r.diagnosis, dict) and "category" in r.diagnosis:
+            cat_str = str(r.diagnosis["category"])
+
+        if cat_str:
+            diagnosis_counts[cat_str] = diagnosis_counts.get(cat_str, 0) + 1
+            if cat_str != "PASS":
+                failure_count += 1
+
+            if r.query_type:
+                q_type = str(r.query_type)
+                if q_type not in diagnosis_by_query_type:
+                    diagnosis_by_query_type[q_type] = {}
+                diagnosis_by_query_type[q_type][cat_str] = (
+                    diagnosis_by_query_type[q_type].get(cat_str, 0) + 1
+                )
+
     if not completed:
         return AggregateEvaluationReport(
             total_queries=total,
@@ -54,6 +80,9 @@ def aggregate_metrics(
             mean_recall_at_k=0.0,
             mrr=0.0,
             k=k,
+            diagnosis_counts=diagnosis_counts,
+            diagnosis_by_query_type=diagnosis_by_query_type,
+            failure_count=failure_count,
         )
 
     precisions: list[float] = []
@@ -140,4 +169,7 @@ def aggregate_metrics(
         groundedness_rate=grounded_rate,
         mean_judge_confidence=mean_conf,
         judge_latency=judge_latency_summary,
+        diagnosis_counts=diagnosis_counts,
+        diagnosis_by_query_type=diagnosis_by_query_type,
+        failure_count=failure_count,
     )
