@@ -7,9 +7,11 @@ from ragdiag import (
     FAILURE_ACTIONS,
     Comparator,
     ComparisonReport,
+    ConfidenceLevel,
     DiagnosisEngine,
     DiagnosisResult,
     DiagnosisTransition,
+    EvaluationConfidence,
     EvaluationReport,
     EvaluationResult,
     FailureCategory,
@@ -62,6 +64,8 @@ def test_public_imports() -> None:
     assert HealthGrade is not None
     assert HealthProfile is not None
     assert HealthStatus is not None
+    assert ConfidenceLevel is not None
+    assert EvaluationConfidence is not None
     assert build_report is not None
     assert Comparator is not None
     assert ComparisonReport is not None

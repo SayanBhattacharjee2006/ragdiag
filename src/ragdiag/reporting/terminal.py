@@ -165,7 +165,34 @@ def render_terminal_report(
             c.print(f"  [cyan]→[/cyan] {r}")
     c.print()
 
-    # 7. SUMMARY FOOTER
+    # 7. EVALUATION CONFIDENCE
+    conf = report.confidence
+    c.print("[bold]EVALUATION CONFIDENCE[/bold]")
+    c.print("-" * 44)
+    if conf.level in ("High", "Good"):
+        conf_color = "green"
+    elif conf.level == "Moderate":
+        conf_color = "yellow"
+    else:
+        conf_color = "red"
+
+    conf_score_str = f"{conf.score:.0f}" if conf.score.is_integer() else f"{conf.score:.1f}"
+    c.print(f"Score: [{conf_color}]{conf_score_str}/100[/{conf_color}]")
+    c.print(f"Level: [{conf_color}]{conf.level}[/{conf_color}]")
+
+    if conf.reasons:
+        c.print("\n[bold]Reasons:[/bold]")
+        for reason in conf.reasons:
+            if any(
+                term in reason.lower()
+                for term in ("failed", "limited", "not configured", "larger sample")
+            ):
+                c.print(f"  [yellow]![/yellow] {reason}")
+            else:
+                c.print(f"  [green]✓[/green] {reason}")
+    c.print()
+
+    # 8. SUMMARY FOOTER
     fail_style = "red" if report.failed_queries > 0 else "green"
     c.print(f"Completed:  [green]{report.completed_queries}[/green]")
     c.print(f"Failed:     [{fail_style}]{report.failed_queries}[/{fail_style}]")

@@ -47,6 +47,7 @@ RAGDiag inspects the raw evidence captured during execution across retrieval and
 - **Multi-Pipeline A/B Comparison**: Compares two pipeline configurations side-by-side on the same dataset, calculating metric deltas, failure shifts, query transitions (`improved`, `regressed`, `unchanged`), and deterministic winner/trade-off decisions.
 - **Automated Regression Analysis**: Evaluates whether a candidate pipeline degraded compared to a baseline, identifying metric regressions beyond tolerance, query regressions, critical diagnosis transitions (e.g., `PASS` $\to$ `INSUFFICIENT_CONTEXT`), and explainable regression summaries.
 - **Overall Health Profile**: Computes a deterministic 0–100 health score, categorical grade (`Excellent`, `Good`, `Fair`, `Poor`, `Critical`), operational status, empirical strengths, weaknesses, and actionable deduplicated recommendations.
+- **Evaluation Confidence**: Quantifies evidence reliability and completeness (0–100 score, `High` to `Very Low` levels) based on query coverage, saturating sample size curves, and judge evidence availability.
 - **CLI & Typed JSON Exports**: Formatted Rich terminal reports and complete Pydantic JSON serialization.
 
 ---
@@ -382,6 +383,41 @@ for w in hp.weaknesses:
 print("\nRecommendations:")
 for r in hp.recommendations:
     print(f"  → {r}")
+```
+
+---
+
+## Evaluation Confidence
+
+Evaluation Confidence answers:
+**"How confident should I be in this evaluation result?"**
+
+It measures the completeness and dependability of the evaluation evidence rather than pipeline quality. A failing pipeline tested on 100 queries with complete judge verification has **High** evaluation confidence (the verdict is dependable), whereas a pipeline tested on only 3 queries has **Moderate** confidence.
+
+### Scoring Factors
+- **Query Coverage** (up to 50 pts): Proportional to successfully executed queries ($\frac{\text{completed}}{\text{total}}$).
+- **Dataset Sample Size** (up to 35 pts): Evaluated via a smooth, saturating curve ($1 \to 0.20$, $5 \to 0.40$, $10 \to 0.60$, $25 \to 0.80$, $\ge 50 \to 1.0$).
+- **Judge Evidence Completeness** (up to 15 pts): Successful judge verification provides the final confidence boost. Retrieval-only evaluation (judge not configured) receives a baseline of 8 pts and is never severely penalized.
+- **Controlled Penalties**: Deductions for pipeline execution crashes and judge evaluation failures.
+
+| Score Range | Level | Interpretation |
+| :--- | :--- | :--- |
+| **90.0 – 100.0** | `High` | Extensive sample size ($50+$ queries), full completion, and verified evidence. |
+| **75.0 – 89.9** | `Good` | Solid sample coverage ($25+$ queries) with minimal or zero failures. |
+| **60.0 – 74.9** | `Moderate` | Moderate sample size ($10–24$ queries) or minor partial execution drops. |
+| **40.0 – 59.9** | `Low` | Limited dataset ($< 10$ queries) or noticeable execution failure rates. |
+| **0.0 – 39.9** | `Very Low` | Pervasive execution crashes or critically insufficient evaluation evidence. |
+
+In Python:
+
+```python
+# Access Evaluation Confidence
+conf = report.confidence
+print(f"Confidence Score: {conf.score}/100 ({conf.level})")
+
+print("\nReasons:")
+for reason in conf.reasons:
+    print(f"  • {reason}")
 ```
 
 ---

@@ -55,6 +55,40 @@ class HealthProfile(BaseModel):
     )
 
 
+class ConfidenceLevel(StrEnum):
+    """Categorical confidence level derived deterministically from confidence score."""
+
+    HIGH = "High"
+    GOOD = "Good"
+    MODERATE = "Moderate"
+    LOW = "Low"
+    VERY_LOW = "Very Low"
+
+
+class EvaluationConfidence(BaseModel):
+    """Reliability and completeness assessment of evaluation evidence.
+
+    Answers: 'How confident should I be in this evaluation result?'
+
+    Attributes:
+        score: Deterministic confidence score bounded between 0.0 and 100.0.
+        level: Categorical confidence rating ('High', 'Good', 'Moderate', 'Low', 'Very Low').
+        reasons: List of concise factual reasons explaining why confidence is high or low.
+    """
+
+    score: float = Field(
+        default=100.0,
+        ge=0.0,
+        le=100.0,
+        description="Deterministic confidence score bounded between 0.0 and 100.0.",
+    )
+    level: str = Field(default="High", description="Categorical confidence rating.")
+    reasons: list[str] = Field(
+        default_factory=list,
+        description="List of concise factual reasons explaining the confidence rating.",
+    )
+
+
 class TopFailure(BaseModel):
     """Structured representation of a high-priority query failure.
 
@@ -190,4 +224,8 @@ class EvaluationReport(BaseModel):
     health_profile: HealthProfile = Field(
         default_factory=HealthProfile,
         description="Overall system health assessment including score, grade, and recommendations.",
+    )
+    confidence: EvaluationConfidence = Field(
+        default_factory=EvaluationConfidence,
+        description="Reliability and completeness assessment of the evaluation evidence.",
     )

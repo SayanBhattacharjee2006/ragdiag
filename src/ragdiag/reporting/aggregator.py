@@ -9,6 +9,7 @@ from ragdiag.metrics.retrieval import (
     reciprocal_rank,
 )
 from ragdiag.models.result import EvaluationResult
+from ragdiag.reporting.confidence import compute_confidence
 from ragdiag.reporting.health import compute_health_profile
 from ragdiag.reporting.insights import generate_insights
 from ragdiag.reporting.models import (
@@ -345,4 +346,5 @@ def build_report(
 
     report.overall_insights = generate_insights(report)
     report.health_profile = compute_health_profile(report)
+    report.confidence = compute_confidence(report)
     return report
