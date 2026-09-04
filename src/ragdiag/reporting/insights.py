@@ -40,8 +40,33 @@ def generate_insights(report: "EvaluationReport") -> list[str]:
     # 1. All Passed Check
     total_failures = sum(count for cat, count in report.diagnosis_counts.items() if cat != "PASS")
     if report.completed_queries > 0 and total_failures == 0 and report.failed_queries == 0:
-        insights.append("All evaluated queries passed retrieval, context, and quality checks.")
-        return insights
+        if report.judged_queries == 0 and report.judge_failures == 0:
+            insights.append(
+                "All evaluated queries passed the available retrieval and context checks. "
+                "Semantic answer quality was not evaluated because no judge was configured."
+            )
+            return insights
+
+        if report.judge_failures == 0 and report.judged_queries == report.completed_queries:
+            insights.append("All evaluated queries passed retrieval, context, and quality checks.")
+            return insights
+
+        if report.judge_failures > 0:
+            q_word = "query" if report.judge_failures == 1 else "queries"
+            insights.append(
+                "All evaluated queries passed the available retrieval and context checks, "
+                f"but semantic evaluation was incomplete because the judge failed on "
+                f"{report.judge_failures} {q_word}."
+            )
+            return insights
+
+        if report.judged_queries < report.completed_queries:
+            insights.append(
+                "All evaluated queries passed the available retrieval and context checks, "
+                f"but semantic evaluation was only completed on {report.judged_queries} "
+                f"of {report.completed_queries} queries."
+            )
+            return insights
 
     # 2. Dominant Failure Mode
     if total_failures > 0:
@@ -107,15 +132,17 @@ def generate_insights(report: "EvaluationReport") -> list[str]:
 
     # 6. Judge Failures
     if report.judge_failures > 0:
+        q_word = "query" if report.judge_failures == 1 else "queries"
         insights.append(
-            f"Judge evaluation failed on {report.judge_failures} queries; "
+            f"Judge evaluation failed on {report.judge_failures} {q_word}; "
             "semantic metrics exclude these from denominators."
         )
 
     # 7. Pipeline Failures
     if report.failed_queries > 0:
+        q_word = "query" if report.failed_queries == 1 else "queries"
         insights.append(
-            f"{report.failed_queries} queries suffered pipeline execution failures "
+            f"{report.failed_queries} {q_word} suffered pipeline execution failures "
             "(categorized as UNKNOWN)."
         )
 

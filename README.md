@@ -19,7 +19,7 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 
 > [!NOTE]
 > **Status: Under Active Development.**
-> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, deterministic retrieval metrics & latency analysis, provider-independent LLM Judge system, and the **Root-Cause Diagnosis Engine** (Phase 6). Multi-pipeline comparison will be delivered in the next phase.
+> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, deterministic retrieval metrics & latency analysis, provider-independent LLM Judge system, root-cause diagnosis engine, and the **Diagnostic Intelligence and Evaluation Report** (Phase 7). Multi-pipeline comparison will be delivered in the next phase.
 
 ---
 
@@ -377,12 +377,12 @@ Precision@5:        0.90
 Recall@5:           1.00
 MRR:                 0.87
 
-Retrieval Latency
+Retrieval Latency (illustrative)
 ------------------------
 Mean:                0.01 ms
-P50:                 0.01 ms
-P95:                 0.02 ms
-P99:                 0.02 ms
+P50:                 0.00 ms
+P95:                 0.01 ms
+P99:                 0.01 ms
 
 FAILURE ANALYSIS (Root Cause Analysis)
 --------------------------------------------
@@ -408,7 +408,7 @@ Multi-hop (1 query)
 
 INSIGHTS
 --------------------------------------------
-* All evaluated queries passed retrieval, context, and quality checks.
+* All evaluated queries passed the available retrieval and context checks. Semantic answer quality was not evaluated because no judge was configured.
 
 Completed:  5
 Failed:     0

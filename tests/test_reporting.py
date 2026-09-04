@@ -264,7 +264,7 @@ class TestDeterministicInsights:
     """Tests for rule-based deterministic insight generation."""
 
     def test_all_passed_insight(self) -> None:
-        """When all queries pass, 'All evaluated queries passed' insight is generated."""
+        """When all queries pass without judge, no-judge all-passed insight is generated."""
         r = EvaluationResult(
             query_id="q1",
             query="q",
@@ -278,6 +278,142 @@ class TestDeterministicInsights:
         )
         report = build_report([r])
         assert any("All evaluated queries passed" in ins for ins in report.overall_insights)
+
+    def test_no_judge_all_retrieval_checks_pass(self) -> None:
+        """When no judge is configured, insight explicitly states semantic quality was unjudged."""
+        r = EvaluationResult(
+            query_id="q1",
+            query="q",
+            status="completed",
+            expected_chunk_ids=["c1"],
+            retrieved_chunks=[RetrievedChunk(id="c1", text="t")],
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.PASS,
+                severity="info",
+                confidence=1.0,
+                reason="Pass",
+            ),
+        )
+        report = build_report([r])
+        assert report.judged_queries == 0
+        assert report.judge_failures == 0
+        assert any(
+            "Semantic answer quality was not evaluated because no judge was configured." in ins
+            for ins in report.overall_insights
+        )
+        assert not any("quality checks." in ins for ins in report.overall_insights)
+
+    def test_judge_configured_all_judged_all_pass(self) -> None:
+        """When judge evaluates all queries and all pass, full all-passed insight is generated."""
+        r = EvaluationResult(
+            query_id="q1",
+            query="q",
+            status="completed",
+            expected_chunk_ids=["c1"],
+            retrieved_chunks=[RetrievedChunk(id="c1", text="t")],
+            metrics={"answer_correct": True, "grounded": True, "judge_confidence": 0.95},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.PASS,
+                severity="info",
+                confidence=1.0,
+                reason="Pass",
+            ),
+        )
+        report = build_report([r])
+        assert report.judged_queries == 1
+        assert report.judge_failures == 0
+        assert any(
+            "All evaluated queries passed retrieval, context, and quality checks." in ins
+            for ins in report.overall_insights
+        )
+
+    def test_judge_configured_with_judge_failures(self) -> None:
+        """When judge fails, insight communicates incomplete evaluation and failure count."""
+        r1 = EvaluationResult(
+            query_id="q1",
+            query="q",
+            status="completed",
+            expected_chunk_ids=["c1"],
+            retrieved_chunks=[RetrievedChunk(id="c1", text="t")],
+            metrics={"answer_correct": True, "grounded": True, "judge_confidence": 0.95},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.PASS,
+                severity="info",
+                confidence=1.0,
+                reason="Pass",
+            ),
+        )
+        r2 = EvaluationResult(
+            query_id="q2",
+            query="q",
+            status="completed",
+            expected_chunk_ids=["c1"],
+            retrieved_chunks=[RetrievedChunk(id="c1", text="t")],
+            judge_error="judge failed: TimeoutError",
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.PASS,
+                severity="info",
+                confidence=1.0,
+                reason="Pass",
+            ),
+        )
+        report = build_report([r1, r2])
+        assert report.judge_failures == 1
+        assert any("semantic evaluation was incomplete" in ins for ins in report.overall_insights)
+        assert any("because the judge failed on 1 query" in ins for ins in report.overall_insights)
+        assert not any("quality checks." in ins for ins in report.overall_insights)
+
+    def test_judge_failures_with_no_other_failures_diagnosis_counts_pass(self) -> None:
+        """Diagnosis counts remain PASS while insight reflects incomplete semantic evaluation."""
+        r = EvaluationResult(
+            query_id="q1",
+            query="q",
+            status="completed",
+            judge_error="judge failed: AuthenticationError",
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.PASS,
+                severity="info",
+                confidence=1.0,
+                reason="Pass",
+            ),
+        )
+        report = build_report([r])
+        assert report.diagnosis_counts["PASS"] == 1
+        assert report.judge_failures == 1
+        assert any("semantic evaluation was incomplete" in ins for ins in report.overall_insights)
+        assert not any("quality checks." in ins for ins in report.overall_insights)
+
+    def test_pipeline_failure_no_all_passed_insight(self) -> None:
+        """Pipeline execution failures suppress any all-passed insight."""
+        r1 = EvaluationResult(
+            query_id="q1",
+            query="q",
+            status="completed",
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.PASS,
+                severity="info",
+                confidence=1.0,
+                reason="Pass",
+            ),
+        )
+        r2 = EvaluationResult(
+            query_id="q2",
+            query="q",
+            status="failed",
+            error="Connection timed out",
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.UNKNOWN,
+                severity="major",
+                confidence=1.0,
+                reason="Pipeline error",
+            ),
+        )
+        report = build_report([r1, r2])
+        assert report.failed_queries == 1
+        assert not any("All evaluated queries passed" in ins for ins in report.overall_insights)
+        assert any(
+            "1 query suffered pipeline execution failures" in ins for ins in report.overall_insights
+        )
 
     def test_dominant_failure_mode_insight(self) -> None:
         """Dominant failure mode is identified and reported with count and percentage."""
