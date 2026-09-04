@@ -1,5 +1,6 @@
 """RAGDiag: RAG evaluation and root-cause diagnosis SDK/CLI."""
 
+from ragdiag.comparison import Comparator, ComparisonReport
 from ragdiag.diagnosis import DiagnosisEngine, DiagnosisResult, FailureCategory
 from ragdiag.judges import Judge, JudgeResult, OpenAIJudge
 from ragdiag.metrics import (
@@ -20,6 +21,8 @@ from ragdiag.runner.evaluator import Evaluator
 __version__ = "0.1.0"
 
 __all__ = [
+    "Comparator",
+    "ComparisonReport",
     "DiagnosisEngine",
     "DiagnosisResult",
     "EvaluationReport",

@@ -13,6 +13,8 @@ import ragdiag
 from ragdiag.dataset.exceptions import DatasetLoadError, DatasetValidationError
 from ragdiag.dataset.loader import load_dataset
 from ragdiag.dataset.validator import validate_dataset
+from ragdiag.models.dataset import GoldenDataset
+from ragdiag.pipeline.base import Pipeline
 from ragdiag.pipeline.exceptions import PipelineError
 from ragdiag.pipeline.loader import load_pipeline
 from ragdiag.runner.evaluator import Evaluator
@@ -120,6 +122,67 @@ def validate(
     )
 
 
+def _resolve_judge(judge: str | None, model: str, c: Console):
+    """Validate and instantiate an optional LLM judge."""
+    if judge is None:
+        return None
+    judge_norm = judge.strip().lower()
+    if judge_norm == "openai":
+        if not os.environ.get("OPENAI_API_KEY"):
+            c.print(
+                Panel(
+                    "[bold red]OpenAI API Key Missing[/bold red]\n\n"
+                    "To evaluate with the OpenAI judge, set the [bold]OPENAI_API_KEY[/bold] "
+                    "environment variable or run without '--judge'.",
+                    title="[bold red]Authentication Error[/bold red]",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(code=1)
+        from ragdiag.judges.openai import OpenAIJudge
+
+        return OpenAIJudge(model=model)
+    c.print(
+        Panel(
+            f"[bold red]Unsupported Judge Provider[/bold red]\n\n"
+            f"Provider '{judge}' is not supported. Supported providers: 'openai'.",
+            title="[bold red]Configuration Error[/bold red]",
+            border_style="red",
+        )
+    )
+    raise typer.Exit(code=1)
+
+
+def _load_pipeline_safe(pipeline_path: str, c: Console, label: str = "Pipeline") -> Pipeline:
+    """Safely load pipeline adapter file with rich error rendering."""
+    try:
+        return load_pipeline(pipeline_path)
+    except PipelineError as exc:
+        c.print(
+            Panel(
+                f"[bold red]{label} Load Failed[/bold red]\n\n{exc}",
+                title=f"[bold red]{label} Error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1) from exc
+
+
+def _load_dataset_safe(dataset_path: str, c: Console) -> GoldenDataset:
+    """Safely load golden dataset with rich error rendering."""
+    try:
+        return load_dataset(dataset_path)
+    except (DatasetLoadError, DatasetValidationError) as exc:
+        c.print(
+            Panel(
+                f"[bold red]Dataset Load Failed[/bold red]\n\n{exc}",
+                title="[bold red]Dataset Error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1) from exc
+
+
 @app.command()
 def run(
     pipeline: Annotated[
@@ -165,58 +228,9 @@ def run(
 ) -> None:
     """Run RAG evaluation against a pipeline and dataset."""
     c = get_console()
-
-    judge_instance = None
-    if judge is not None:
-        judge_norm = judge.strip().lower()
-        if judge_norm == "openai":
-            if not os.environ.get("OPENAI_API_KEY"):
-                c.print(
-                    Panel(
-                        "[bold red]OpenAI API Key Missing[/bold red]\n\n"
-                        "To evaluate with the OpenAI judge, set the [bold]OPENAI_API_KEY[/bold] "
-                        "environment variable or run without '--judge'.",
-                        title="[bold red]Authentication Error[/bold red]",
-                        border_style="red",
-                    )
-                )
-                raise typer.Exit(code=1)
-            from ragdiag.judges.openai import OpenAIJudge
-
-            judge_instance = OpenAIJudge(model=model)
-        else:
-            c.print(
-                Panel(
-                    f"[bold red]Unsupported Judge Provider[/bold red]\n\n"
-                    f"Provider '{judge}' is not supported. Supported providers: 'openai'.",
-                    title="[bold red]Configuration Error[/bold red]",
-                    border_style="red",
-                )
-            )
-            raise typer.Exit(code=1)
-    try:
-        loaded_pipeline = load_pipeline(pipeline)
-    except PipelineError as exc:
-        c.print(
-            Panel(
-                f"[bold red]Pipeline Load Failed[/bold red]\n\n{exc}",
-                title="[bold red]Pipeline Error[/bold red]",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(code=1) from exc
-
-    try:
-        loaded_dataset = load_dataset(dataset)
-    except (DatasetLoadError, DatasetValidationError) as exc:
-        c.print(
-            Panel(
-                f"[bold red]Dataset Load Failed[/bold red]\n\n{exc}",
-                title="[bold red]Dataset Error[/bold red]",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(code=1) from exc
+    judge_instance = _resolve_judge(judge, model, c)
+    loaded_pipeline = _load_pipeline_safe(pipeline, c)
+    loaded_dataset = _load_dataset_safe(dataset, c)
 
     c.print("[dim]Running evaluation...[/dim]\n")
 
@@ -243,6 +257,86 @@ def run(
             with open(output, "w", encoding="utf-8") as f:
                 f.write(json_str)
             c.print(f"\n[bold green]Report written to:[/bold green] {output}")
+        except OSError as exc:
+            c.print(f"\n[bold red]Failed to write output file '{output}':[/bold red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def compare(
+    pipeline_a: Annotated[
+        str,
+        typer.Option(
+            "--pipeline-a",
+            "-pa",
+            help="Path to Python file defining baseline Pipeline A.",
+        ),
+    ],
+    pipeline_b: Annotated[
+        str,
+        typer.Option(
+            "--pipeline-b",
+            "-pb",
+            help="Path to Python file defining candidate Pipeline B.",
+        ),
+    ],
+    dataset: Annotated[
+        str,
+        typer.Option(
+            "--dataset",
+            "-d",
+            help="Path to golden evaluation dataset JSON file.",
+        ),
+    ],
+    judge: Annotated[
+        str | None,
+        typer.Option(
+            "--judge",
+            "-j",
+            help="LLM judge provider (e.g. 'openai').",
+        ),
+    ] = None,
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Model identifier for the LLM judge.",
+        ),
+    ] = "gpt-4o-mini",
+    output: Annotated[
+        str | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Path to save comparison report as JSON.",
+        ),
+    ] = None,
+) -> None:
+    """Compare two RAG pipeline configurations against a shared golden dataset."""
+    c = get_console()
+    judge_instance = _resolve_judge(judge, model, c)
+    pipe_a = _load_pipeline_safe(pipeline_a, c, label="Pipeline A")
+    pipe_b = _load_pipeline_safe(pipeline_b, c, label="Pipeline B")
+    ds = _load_dataset_safe(dataset, c)
+
+    c.print("[dim]Running multi-pipeline comparison...[/dim]\n")
+    start_time = time.perf_counter()
+
+    from ragdiag.comparison import Comparator, render_comparison_terminal
+
+    comparator = Comparator(k=5, judge=judge_instance)
+    comparison_report = comparator.compare(pipe_a, pipe_b, ds)
+    total_elapsed = time.perf_counter() - start_time
+
+    render_comparison_terminal(comparison_report, c, total_elapsed=total_elapsed)
+
+    if output:
+        try:
+            json_str = comparison_report.model_dump_json(indent=2)
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(json_str)
+            c.print(f"\n[bold green]Comparison report written to:[/bold green] {output}")
         except OSError as exc:
             c.print(f"\n[bold red]Failed to write output file '{output}':[/bold red] {exc}")
             raise typer.Exit(code=1) from exc

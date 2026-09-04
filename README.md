@@ -19,7 +19,7 @@ When Retrieval-Augmented Generation (RAG) systems fail or produce suboptimal out
 
 > [!NOTE]
 > **Status: Under Active Development.**
-> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, deterministic retrieval metrics & latency analysis, provider-independent LLM Judge system, root-cause diagnosis engine, and the **Diagnostic Intelligence and Evaluation Report** (Phase 7). Multi-pipeline comparison will be delivered in the next phase.
+> This repository contains the project foundation, domain models, pipeline adapter contract, validated golden dataset system, evaluation execution engine, deterministic retrieval metrics & latency analysis, provider-independent LLM Judge system, root-cause diagnosis engine, system-level Evaluation Report, and **Multi-Pipeline Comparison** (Phase 8).
 
 ---
 
@@ -328,6 +328,73 @@ json_data = report.model_dump_json(indent=2)
 
 ---
 
+## Multi-Pipeline Comparison
+
+RAG development is inherently iterative: developers frequently test new chunking strategies, embedding models, vector databases, or hybrid search configurations. **RAGDiag Multi-Pipeline Comparison** enables evidence-based A/B testing of exactly two pipeline configurations against the identical `GoldenDataset` and evaluation parameters.
+
+### Why Multi-Pipeline Comparison Exists
+
+Isolated benchmark numbers rarely reveal architectural trade-offs:
+- Does hybrid search improve recall at the expense of doubling retrieval latency?
+- Did a new retriever fix reasoning queries while regressing multi-hop queries?
+- Which specific queries transitioned from failure to pass?
+
+RAGDiag evaluates both pipelines through the same `Evaluator` and produces a structured `ComparisonReport` that captures metric deltas, failure count shifts, per-query-type breakdowns, individual query transitions, and deterministic winner/trade-off decisions.
+
+### Metric Deltas ($\Delta = \text{Pipeline B} - \text{Pipeline A}$)
+
+All numerical deltas follow a consistent direction: **Pipeline B minus Pipeline A**.
+- **Quality Metrics** (Precision@K, Recall@K, MRR, Groundedness, Correctness): A positive delta indicates Pipeline B achieved higher quality.
+- **Latency Metrics** (Mean, P95): A positive delta indicates Pipeline B is slower; a negative delta indicates Pipeline B is faster.
+- **Judge Availability**: If no judge is configured, semantic metrics are explicitly marked as unavailable (`None`) rather than defaulting to zero.
+
+### Diagnosis Failure Deltas
+
+Compares failure counts across all 8 standard taxonomy categories (`B - A`):
+- A negative delta indicates Pipeline B had **fewer failures** in that category (improvement).
+- A positive delta indicates Pipeline B had **more failures** (regression).
+
+### Deterministic Winner Strategy & Trade-Off Detection
+
+RAGDiag avoids arbitrary weighted scoring formulas in favor of a transparent, deterministic decision rule:
+1. **Quality Priority**: Evaluates Recall@K, MRR, Groundedness (if available), and Correctness (if available) against a tolerance threshold ($\epsilon = 0.02$). If Pipeline B improves primary quality beyond tolerance, it is the quality winner.
+2. **Latency Analysis**: Compares mean retrieval latency against a tolerance threshold ($\epsilon_{\text{lat}} = 10.0\text{ ms}$).
+3. **Trade-Off Classification**:
+   - *Higher quality with higher latency*: Overall winner is declared with trade-off `"Higher quality <-> higher latency"`.
+   - *Higher quality with equal/better latency*: Overall winner is declared with trade-off `"Higher quality with improved latency"`.
+   - *Lower quality with lower latency*: Trade-off identified as `"Faster latency at the expense of lower quality"`.
+   - *Roughly equal performance*: Declared as `"TIE"`.
+4. **Descriptive Significance**: MVP results use empirical delta thresholds (e.g. $\ge 0.10$ for substantial improvement) without claiming statistical significance.
+
+### Query-by-Query Outcome Transitions
+
+Queries are matched by `query_id` across both pipeline evaluation runs to classify individual query transitions:
+- **Improved**: Pipeline B reduced failure severity (e.g. `INSUFFICIENT_CONTEXT` $\to$ `PASS`) or achieved higher recall without adding new quality failures.
+- **Regressed**: Pipeline B introduced a higher-severity failure or lower recall.
+- **Unchanged**: Both pipelines achieved equivalent diagnostic outcomes.
+
+### Python Comparison API
+
+```python
+from ragdiag import Comparator
+from ragdiag.dataset import load_dataset
+from ragdiag.pipeline import load_pipeline
+
+pipeline_a = load_pipeline("examples/dense_pipeline.py")
+pipeline_b = load_pipeline("examples/hybrid_pipeline.py")
+dataset = load_dataset("examples/basic_dataset.json")
+
+comparator = Comparator(k=5)
+comparison = comparator.compare(pipeline_a, pipeline_b, dataset)
+
+print(f"Overall Winner: {comparison.overall_winner}")
+print(f"Trade-off:      {comparison.trade_off}")
+print(f"Recall Delta:   {comparison.metric_deltas.recall_at_k:+.2f}")
+print(f"Improved:       {comparison.queries_improved} queries")
+```
+
+---
+
 ## CLI Commands
 
 ### 1. Validate a Golden Dataset
@@ -432,6 +499,95 @@ export OPENAI_API_KEY="sk-..."
 uv run ragdiag run --pipeline examples/basic_pipeline.py --dataset examples/basic_dataset.json --judge openai --model gpt-4o-mini
 ```
 
+### 5. Compare Two Pipelines
+
+Compare two pipelines side-by-side on the same golden dataset:
+
+```bash
+uv run ragdiag compare \
+  --pipeline-a examples/dense_pipeline.py \
+  --pipeline-b examples/hybrid_pipeline.py \
+  --dataset examples/basic_dataset.json
+```
+
+Output:
+```text
+Running multi-pipeline comparison...
+
+RAGDiag Comparison
+==================================================
+Dataset:    basic_dataset (v1.0)
+Pipeline A: dense_pipeline
+Pipeline B: hybrid_pipeline
+
+OVERALL METRICS
+--------------------------------------------------
+Metric                   dense_pipeline hybrid_pipeline  Delta (B-A)
+--------------------------------------------------------------
+Precision@5                     0.87        0.90  +0.03
+Recall@5                        0.80        1.00  +0.20
+MRR                             0.87        0.87       0.00
+Mean Retrieval                 5.4ms      25.2ms     +19.84ms
+P95 Retrieval                  5.5ms      25.3ms     +19.78ms
+
+FAILURE COUNTS
+--------------------------------------------------
+Category                     dense_pipeline hybrid_pipeline    Delta
+----------------------------------------------------------
+PASS                                 3         5 +2
+WRONG_CHUNK_RETRIEVED                0         0      0
+WRONG_CHUNK_RANK                     0         0      0
+INSUFFICIENT_CONTEXT                 2         0 -2
+RETRIEVED_BUT_NOT_GROUNDED           0         0      0
+ANSWER_INCORRECT                     0         0      0
+LATENCY_OUTLIER                      0         0      0
+UNKNOWN                              0         0      0
+
+QUERY TYPES
+--------------------------------------------------
+Factual
+  Recall@5:  1.00 -> 1.00 (0.00)    MRR: 1.00 -> 1.00 (0.00)
+
+Reasoning
+  Recall@5:  0.75 -> 1.00 (+0.25)    MRR: 1.00 -> 1.00 (0.00)
+  Failure count delta: -1
+
+Multi-hop
+  Recall@5:  0.50 -> 1.00 (+0.50)    MRR: 0.33 -> 0.33 (0.00)
+  Failure count delta: -1
+
+DECISION
+--------------------------------------------------
+Overall winner: hybrid_pipeline
+
+Why:
+hybrid_pipeline improves Recall@5 by 20 percentage points and MRR by 0 points, 
+while increasing mean retrieval latency by 19.8 ms.
+
+Trade-off:
+Higher quality <-> higher latency
+
+QUERY OUTCOMES
+--------------------------------------------------
+Improved:  2
+Regressed: 0
+Unchanged: 3
+
+Total comparison time: 0.16s
+```
+
+### 6. Compare Two Pipelines with JSON Output
+
+Export the complete structured `ComparisonReport` (including nested reports for Pipeline A and B) to JSON:
+
+```bash
+uv run ragdiag compare \
+  --pipeline-a examples/dense_pipeline.py \
+  --pipeline-b examples/hybrid_pipeline.py \
+  --dataset examples/basic_dataset.json \
+  --output comparison.json
+```
+
 ---
 
 ## Local Development Setup
@@ -474,4 +630,4 @@ uv run ruff format --check .
 - [x] **Phase 5: LLM Judge** (Semantic answer correctness and context groundedness using structured outputs, error isolation, provider decoupling)
 - [x] **Phase 6: Root-Cause Diagnosis Engine** (Automated classification of retrieval vs. generation failure modes, evidence generation, query-type breakdowns)
 - [x] **Phase 7: Diagnostic Intelligence and Final Evaluation Report** (System-level EvaluationReport, query-type analysis, top failures, rule-based insights, JSON export)
-- [ ] **Phase 8: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)
+- [x] **Phase 8: Multi-Pipeline Comparison** (Side-by-side diagnostic reports and diffs)

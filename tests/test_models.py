@@ -4,6 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from ragdiag import (
+    Comparator,
+    ComparisonReport,
     DiagnosisEngine,
     DiagnosisResult,
     EvaluationReport,
@@ -46,6 +48,8 @@ def test_public_imports() -> None:
     assert EvaluationReport is not None
     assert TopFailure is not None
     assert build_report is not None
+    assert Comparator is not None
+    assert ComparisonReport is not None
     assert precision_at_k is not None
     assert recall_at_k is not None
     assert reciprocal_rank is not None
