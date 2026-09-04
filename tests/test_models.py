@@ -48,7 +48,7 @@ from ragdiag import (
 
 def test_public_imports() -> None:
     """Verify all key domain entities and version are exposed at package root."""
-    assert __version__ == "0.1.0"
+    assert __version__ == "0.1.1"
     assert Pipeline is not None
     assert RetrievedChunk is not None
     assert QuerySample is not None
