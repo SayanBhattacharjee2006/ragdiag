@@ -48,6 +48,8 @@ RAGDiag inspects the raw evidence captured during execution across retrieval and
 - **Automated Regression Analysis**: Evaluates whether a candidate pipeline degraded compared to a baseline, identifying metric regressions beyond tolerance, query regressions, critical diagnosis transitions (e.g., `PASS` $\to$ `INSUFFICIENT_CONTEXT`), and explainable regression summaries.
 - **Overall Health Profile**: Computes a deterministic 0–100 health score, categorical grade (`Excellent`, `Good`, `Fair`, `Poor`, `Critical`), operational status, empirical strengths, weaknesses, and actionable deduplicated recommendations.
 - **Evaluation Confidence**: Quantifies evidence reliability and completeness (0–100 score, `High` to `Very Low` levels) based on query coverage, saturating sample size curves, and judge evidence availability.
+- **Diagnose CLI (`ragdiag diagnose`)**: Instantly inspects existing reports to explain pipeline failures, affected queries, actions, health profile, and evaluation confidence without re-executing pipelines or LLMs.
+- **Automatic Result Persistence**: Automatically saves machine-readable JSON and human-readable Markdown to `.ragdiag/` (`evaluations/`, `comparisons/`, `diagnoses/`) with safe atomic writes.
 - **CLI & Typed JSON Exports**: Formatted Rich terminal reports and complete Pydantic JSON serialization.
 
 ---
@@ -267,6 +269,125 @@ ragdiag compare \
   --dataset examples/demo_dataset.json \
   --output comparison.json
 ```
+
+---
+
+## Diagnose Evaluation Reports (`ragdiag diagnose`)
+
+Inspect an existing serialized evaluation report without rerunning the pipeline or invoking LLM inference:
+
+```bash
+ragdiag diagnose .ragdiag/evaluations/latest.json
+```
+
+Or inspect any previously saved `EvaluationReport` JSON file:
+
+```bash
+ragdiag diagnose evaluation_report.json
+```
+
+### Purpose
+Answers the central developer question:
+**"Why is my RAG pipeline failing, and what should I do about it?"**
+
+- **Zero Re-computation**: Operates offline on existing reports without requiring pipeline execution or LLM tokens.
+- **Top Failure Modes**: Identifies primary bottlenecks ranked by severity and frequency.
+- **Actionable Recommendations**: Directly displays recommendations from the single source of truth Failure $\to$ Action Mapping.
+- **Important Query Details**: Shows affected query IDs, diagnostic verdicts, evidence, and actions.
+- **Health & Confidence**: Presents the overall health profile (Score, Grade, Status) and evidence reliability confidence score.
+
+Sample terminal output:
+
+```text
+RAG DIAGNOSIS
+============================================
+
+Overall:
+  42 queries evaluated
+  31 passed
+  11 failed
+
+TOP FAILURE MODES
+--------------------------------------------
+1. WRONG_CHUNK_RETRIEVED
+   Queries: 6
+   Action: Review the retrieval strategy and query formulation; the pipeline retrieved irrelevant context.
+
+2. ANSWER_INCORRECT
+   Queries: 3
+   Action: Review the generation prompt, model behavior, and context usage for answer correctness.
+
+3. INSUFFICIENT_CONTEXT
+   Queries: 2
+   Action: Increase retrieval depth or improve retrieval coverage so all required context is retrieved.
+
+IMPORTANT QUERIES
+--------------------------------------------
+q12
+  Diagnosis: WRONG_CHUNK_RETRIEVED
+  Reason:    Complete retrieval miss.
+  Evidence:  None of the expected chunks were retrieved.
+  Action:    Review the retrieval strategy and query formulation; the pipeline retrieved irrelevant context.
+
+HEALTH
+--------------------------------------------
+Score: 68.0/100
+Grade: Fair (Status: Degraded)
+
+EVALUATION CONFIDENCE
+--------------------------------------------
+Score: 94.0/100
+Level: High
+```
+
+---
+
+## Automatic Result Persistence (`.ragdiag/`)
+
+RAGDiag automatically persists generated results upon every successful run—**no manual save command is required**.
+
+### Persistence Directory Layout
+
+Results are saved to a project-local `.ragdiag/` directory relative to the current working directory:
+
+```text
+.ragdiag/
+├── evaluations/
+│   ├── latest.json           # Machine-readable Pydantic EvaluationReport
+│   ├── latest.md             # Human-readable GitHub-flavored Markdown
+│   └── history/
+│       ├── 20260904_120000_123456.json
+│       └── 20260904_120000_123456.md
+├── comparisons/
+│   ├── latest.json           # Machine-readable Pydantic ComparisonReport
+│   ├── latest.md             # Human-readable comparison summary
+│   └── history/
+│       ├── 20260904_120500_654321.json
+│       └── 20260904_120500_654321.md
+└── diagnoses/
+    ├── latest.json           # Machine-readable evaluated report
+    ├── latest.md             # Clean diagnostic summary Markdown
+    └── history/
+        ├── 20260904_121000_789012.json
+        └── 20260904_121000_789012.md
+```
+
+### Safety & Resilience
+- **Atomic File Writes**: Files are written to temporary files and atomically renamed, avoiding partial or corrupted state.
+- **Fail-Safe Warnings**: If disk persistence fails (e.g. permission or disk space issues), the command displays a non-fatal warning without aborting the evaluation.
+- **Isolated Namespaces**: Evaluations, comparisons, and diagnoses reside in separate directories and never overwrite each other.
+
+### Inspecting and Managing Artifacts
+- **Inspect**: Open `latest.md` in any Markdown viewer or preview `latest.json` with standard JSON tools.
+- **Clean**: Remove the `.ragdiag` folder at any time to clear local run history:
+  ```bash
+  rm -rf .ragdiag
+  ```
+- **Git Ignore**: Add `.ragdiag/` to your project's `.gitignore` to prevent committing generated local test runs:
+  ```gitignore
+  # RAGDiag generated evaluation artifacts
+  .ragdiag/
+  ```
 
 ---
 

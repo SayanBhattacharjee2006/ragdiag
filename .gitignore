@@ -49,3 +49,6 @@ htmlcov/
 *~
 .DS_Store
 Thumbs.db
+
+# RAGDiag generated artifacts
+.ragdiag/

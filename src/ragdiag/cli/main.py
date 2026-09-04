@@ -1,5 +1,6 @@
 """CLI interface for RAGDiag."""
 
+import json
 import os
 import sys
 import time
@@ -35,6 +36,11 @@ def get_console() -> Console:
     deterministic output. When running in an interactive terminal, standard
     terminal detection and styling apply.
     """
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
     is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
     return Console(force_terminal=None if is_tty else False)
 
@@ -251,6 +257,12 @@ def run(
 
     render_terminal_report(report, c, total_elapsed=total_elapsed)
 
+    from ragdiag.persistence import ResultPersistence
+
+    persist_res = ResultPersistence().persist_evaluation(report)
+    if not persist_res.success and persist_res.warning:
+        c.print(f"\n[bold yellow]Warning:[/bold yellow] {persist_res.warning}")
+
     if output:
         try:
             json_str = report.model_dump_json(indent=2)
@@ -331,6 +343,12 @@ def compare(
 
     render_comparison_terminal(comparison_report, c, total_elapsed=total_elapsed)
 
+    from ragdiag.persistence import ResultPersistence
+
+    persist_comp = ResultPersistence().persist_comparison(comparison_report)
+    if not persist_comp.success and persist_comp.warning:
+        c.print(f"\n[bold yellow]Warning:[/bold yellow] {persist_comp.warning}")
+
     if output:
         try:
             json_str = comparison_report.model_dump_json(indent=2)
@@ -340,3 +358,70 @@ def compare(
         except OSError as exc:
             c.print(f"\n[bold red]Failed to write output file '{output}':[/bold red] {exc}")
             raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def diagnose(
+    report: Annotated[
+        str,
+        typer.Argument(
+            help="Path to serialized evaluation report JSON file.",
+        ),
+    ],
+) -> None:
+    """Diagnose failure modes and action recommendations from an evaluation report."""
+    c = get_console()
+    if not os.path.exists(report):
+        c.print(
+            Panel(
+                (
+                    "[bold red]File Not Found[/bold red]\n\n"
+                    f"Evaluation report file '{report}' does not exist."
+                ),
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        with open(report, encoding="utf-8") as f:
+            content = f.read()
+    except OSError as exc:
+        c.print(
+            Panel(
+                f"[bold red]Read Error[/bold red]\n\nFailed to read report file '{report}': {exc}",
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1) from exc
+
+    from ragdiag.reporting.models import EvaluationReport
+
+    try:
+        data = json.loads(content)
+        if not isinstance(data, dict) or not any(
+            k in data for k in ("diagnosis_counts", "total_queries", "dataset_name")
+        ):
+            raise ValueError("JSON does not contain recognized RAGDiag EvaluationReport fields.")
+        eval_report = EvaluationReport.model_validate(data)
+    except Exception as exc:
+        c.print(
+            Panel(
+                f"[bold red]Invalid Evaluation Report[/bold red]\n\n"
+                f"The file '{report}' is not a valid RAGDiag EvaluationReport JSON:\n{exc}",
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1) from exc
+
+    from ragdiag.diagnosis.inspector import render_diagnosis_terminal
+    from ragdiag.persistence import ResultPersistence
+
+    render_diagnosis_terminal(eval_report, c)
+
+    persist_diag = ResultPersistence().persist_diagnosis(eval_report)
+    if not persist_diag.success and persist_diag.warning:
+        c.print(f"\n[bold yellow]Warning:[/bold yellow] {persist_diag.warning}")

@@ -12,9 +12,11 @@ from ragdiag.comparison import (
 from ragdiag.diagnosis import (
     FAILURE_ACTIONS,
     DiagnosisEngine,
+    DiagnosisInspection,
     DiagnosisResult,
     FailureCategory,
     get_action_for_category,
+    inspect_report,
 )
 from ragdiag.judges import Judge, JudgeResult, OpenAIJudge
 from ragdiag.metrics import (
@@ -28,6 +30,7 @@ from ragdiag.models.chunk import RetrievedChunk
 from ragdiag.models.dataset import GoldenDataset
 from ragdiag.models.result import EvaluationResult
 from ragdiag.models.sample import QuerySample, QueryType
+from ragdiag.persistence import PersistenceResult, ResultPersistence
 from ragdiag.pipeline.base import Pipeline
 from ragdiag.reporting import (
     ConfidenceLevel,
@@ -48,6 +51,7 @@ __all__ = [
     "ComparisonReport",
     "ConfidenceLevel",
     "DiagnosisEngine",
+    "DiagnosisInspection",
     "DiagnosisResult",
     "DiagnosisTransition",
     "EvaluationConfidence",
@@ -64,11 +68,13 @@ __all__ = [
     "JudgeResult",
     "MetricRegression",
     "OpenAIJudge",
+    "PersistenceResult",
     "Pipeline",
     "QuerySample",
     "QueryType",
     "RegressedQuery",
     "RegressionAnalysis",
+    "ResultPersistence",
     "RetrievedChunk",
     "TopFailure",
     "__version__",
@@ -76,6 +82,7 @@ __all__ = [
     "analyze_regressions",
     "build_report",
     "get_action_for_category",
+    "inspect_report",
     "mean_reciprocal_rank",
     "precision_at_k",
     "recall_at_k",

@@ -9,6 +9,7 @@ from ragdiag import (
     ComparisonReport,
     ConfidenceLevel,
     DiagnosisEngine,
+    DiagnosisInspection,
     DiagnosisResult,
     DiagnosisTransition,
     EvaluationConfidence,
@@ -23,11 +24,13 @@ from ragdiag import (
     JudgeResult,
     MetricRegression,
     OpenAIJudge,
+    PersistenceResult,
     Pipeline,
     QuerySample,
     QueryType,
     RegressedQuery,
     RegressionAnalysis,
+    ResultPersistence,
     RetrievedChunk,
     TopFailure,
     __version__,
@@ -35,6 +38,7 @@ from ragdiag import (
     analyze_regressions,
     build_report,
     get_action_for_category,
+    inspect_report,
     mean_reciprocal_rank,
     precision_at_k,
     recall_at_k,
@@ -55,10 +59,14 @@ def test_public_imports() -> None:
     assert JudgeResult is not None
     assert OpenAIJudge is not None
     assert DiagnosisEngine is not None
+    assert DiagnosisInspection is not None
     assert DiagnosisResult is not None
     assert FailureCategory is not None
     assert FAILURE_ACTIONS is not None
     assert get_action_for_category is not None
+    assert inspect_report is not None
+    assert ResultPersistence is not None
+    assert PersistenceResult is not None
     assert EvaluationReport is not None
     assert TopFailure is not None
     assert HealthGrade is not None
