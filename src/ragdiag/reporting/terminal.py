@@ -119,6 +119,8 @@ def render_terminal_report(
             style = CATEGORY_SEVERITY_STYLES.get(tf.category.value, "red")
             c.print(f"[bold]{tf.query_id}[/bold]  [{style}]{tf.category.value}[/{style}]")
             c.print(f"{tf.reason}")
+            if tf.action:
+                c.print(f"[cyan]Action:[/cyan] {tf.action}")
             if tf.evidence:
                 first_ev = tf.evidence[0]
                 c.print(f"[dim]{first_ev}[/dim]")

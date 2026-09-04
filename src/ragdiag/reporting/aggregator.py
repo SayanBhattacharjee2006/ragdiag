@@ -1,6 +1,6 @@
 """Report aggregation engine turning EvaluationResults into system-level EvaluationReports."""
 
-from ragdiag.diagnosis.models import FailureCategory
+from ragdiag.diagnosis.models import FailureCategory, get_action_for_category
 from ragdiag.metrics.aggregation import mean_reciprocal_rank
 from ragdiag.metrics.latency import calculate_latency_summary
 from ragdiag.metrics.retrieval import (
@@ -65,6 +65,16 @@ def _get_reason(result: EvaluationResult) -> str:
     if isinstance(result.diagnosis, dict) and "reason" in result.diagnosis:
         return str(result.diagnosis["reason"])
     return result.error or "Evaluation failure"
+
+
+def _get_action(result: EvaluationResult) -> str:
+    """Extract diagnosis action string from an EvaluationResult."""
+    if hasattr(result.diagnosis, "action") and result.diagnosis.action:
+        return str(result.diagnosis.action)
+    if isinstance(result.diagnosis, dict) and "action" in result.diagnosis:
+        return str(result.diagnosis["action"])
+    cat_val = _get_category_str(result)
+    return get_action_for_category(cat_val)
 
 
 def _get_evidence(result: EvaluationResult) -> list[str]:
@@ -307,6 +317,7 @@ def build_report(
                 severity=severity_typed,  # type: ignore[arg-type]
                 confidence=_get_confidence(r),
                 reason=_get_reason(r),
+                action=_get_action(r),
                 evidence=_get_evidence(r),
             )
         )

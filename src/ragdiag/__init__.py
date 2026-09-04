@@ -1,7 +1,13 @@
 """RAGDiag: RAG evaluation and root-cause diagnosis SDK/CLI."""
 
 from ragdiag.comparison import Comparator, ComparisonReport
-from ragdiag.diagnosis import DiagnosisEngine, DiagnosisResult, FailureCategory
+from ragdiag.diagnosis import (
+    FAILURE_ACTIONS,
+    DiagnosisEngine,
+    DiagnosisResult,
+    FailureCategory,
+    get_action_for_category,
+)
 from ragdiag.judges import Judge, JudgeResult, OpenAIJudge
 from ragdiag.metrics import (
     aggregate_metrics,
@@ -28,6 +34,7 @@ __all__ = [
     "EvaluationReport",
     "EvaluationResult",
     "Evaluator",
+    "FAILURE_ACTIONS",
     "FailureCategory",
     "GoldenDataset",
     "Judge",
@@ -41,6 +48,7 @@ __all__ = [
     "__version__",
     "aggregate_metrics",
     "build_report",
+    "get_action_for_category",
     "mean_reciprocal_rank",
     "precision_at_k",
     "recall_at_k",

@@ -264,18 +264,18 @@ ragdiag compare \
 
 ## Root-Cause Failure Taxonomy
 
-RAGDiag classifies every completed query into an explainable 8-category hierarchy:
+RAGDiag classifies every completed query into an explainable 8-category hierarchy and provides a deterministic, actionable recommendation:
 
-| Category | Severity | Description |
-| :--- | :--- | :--- |
-| **`PASS`** | `info` | Query succeeded across retrieval, context completeness, semantic, and latency checks. |
-| **`WRONG_CHUNK_RETRIEVED`** | `major` | Complete retrieval miss; none of the required context chunks were retrieved in top-$K$. |
-| **`INSUFFICIENT_CONTEXT`** | `warning` | Partial context retrieval; query required multiple chunks but only a subset was retrieved. |
-| **`WRONG_CHUNK_RANK`** | `warning` | All required context was retrieved, but the first relevant chunk ranked lower than threshold (rank > 3). |
-| **`RETRIEVED_BUT_NOT_GROUNDED`** | `major` | Hallucination; context was retrieved, but the LLM made claims unsupported by the chunks. |
-| **`ANSWER_INCORRECT`** | `major` | Context was retrieved and answer was grounded, but contradicted or failed the ground truth. |
-| **`LATENCY_OUTLIER`** | `warning` | Quality passed, but retrieval latency exceeded threshold (default: 1000ms). |
-| **`UNKNOWN`** | `major` | Pipeline crash or unclassifiable execution exception. |
+| Category | Severity | Description | Action Recommendation |
+| :--- | :--- | :--- | :--- |
+| **`PASS`** | `info` | Query succeeded across retrieval, context completeness, semantic, and latency checks. | No action required. |
+| **`WRONG_CHUNK_RETRIEVED`** | `major` | Complete retrieval miss; none of the required context chunks were retrieved in top-$K$. | Review the retrieval strategy and query formulation; the pipeline retrieved irrelevant context. |
+| **`INSUFFICIENT_CONTEXT`** | `warning` | Partial context retrieval; query required multiple chunks but only a subset was retrieved. | Increase retrieval depth or improve retrieval coverage so all required context is retrieved. |
+| **`WRONG_CHUNK_RANK`** | `warning` | All required context was retrieved, but the first relevant chunk ranked lower than threshold (rank > 3). | Improve ranking or reranking so relevant context appears earlier. |
+| **`RETRIEVED_BUT_NOT_GROUNDED`** | `major` | Hallucination; context was retrieved, but the LLM made claims unsupported by the chunks. | Improve answer grounding so the generated response stays supported by the retrieved context. |
+| **`ANSWER_INCORRECT`** | `major` | Context was retrieved and answer was grounded, but contradicted or failed the ground truth. | Review the generation prompt, model behavior, and context usage for answer correctness. |
+| **`LATENCY_OUTLIER`** | `warning` | Quality passed, but retrieval latency exceeded threshold (default: 1000ms). | Investigate slow retrieval or generation paths and optimize the latency bottleneck. |
+| **`UNKNOWN`** | `major` | Pipeline crash or unclassifiable execution exception. | Inspect the pipeline execution error and underlying integration. |
 
 ### Decision Precedence
 

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from ragdiag import (
+    FAILURE_ACTIONS,
     Comparator,
     ComparisonReport,
     DiagnosisEngine,
@@ -23,6 +24,7 @@ from ragdiag import (
     __version__,
     aggregate_metrics,
     build_report,
+    get_action_for_category,
     mean_reciprocal_rank,
     precision_at_k,
     recall_at_k,
@@ -45,6 +47,8 @@ def test_public_imports() -> None:
     assert DiagnosisEngine is not None
     assert DiagnosisResult is not None
     assert FailureCategory is not None
+    assert FAILURE_ACTIONS is not None
+    assert get_action_for_category is not None
     assert EvaluationReport is not None
     assert TopFailure is not None
     assert build_report is not None

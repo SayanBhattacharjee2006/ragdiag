@@ -2,9 +2,9 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from ragdiag.diagnosis.models import FailureCategory
+from ragdiag.diagnosis.models import FailureCategory, get_action_for_category
 from ragdiag.metrics.models import LatencySummary
 
 
@@ -18,6 +18,7 @@ class TopFailure(BaseModel):
         severity: Failure severity level ('info', 'warning', 'major').
         confidence: Classification confidence score between 0.0 and 1.0.
         reason: Concise diagnostic verdict explaining the failure.
+        action: Actionable recommendation explaining what to investigate or improve.
         evidence: Concrete diagnostic signals supporting the verdict.
     """
 
@@ -27,7 +28,17 @@ class TopFailure(BaseModel):
     severity: Literal["info", "warning", "major"]
     confidence: float
     reason: str
+    action: str = Field(
+        default="",
+        description="Actionable recommendation explaining what to investigate or improve.",
+    )
     evidence: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _set_default_action(self) -> "TopFailure":
+        if not self.action:
+            self.action = get_action_for_category(self.category)
+        return self
 
 
 class RetrievalSummary(BaseModel):
