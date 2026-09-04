@@ -14,6 +14,9 @@ from ragdiag import (
     EvaluationResult,
     FailureCategory,
     GoldenDataset,
+    HealthGrade,
+    HealthProfile,
+    HealthStatus,
     Judge,
     JudgeResult,
     MetricRegression,
@@ -56,6 +59,9 @@ def test_public_imports() -> None:
     assert get_action_for_category is not None
     assert EvaluationReport is not None
     assert TopFailure is not None
+    assert HealthGrade is not None
+    assert HealthProfile is not None
+    assert HealthStatus is not None
     assert build_report is not None
     assert Comparator is not None
     assert ComparisonReport is not None

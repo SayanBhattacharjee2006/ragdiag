@@ -46,6 +46,7 @@ RAGDiag inspects the raw evidence captured during execution across retrieval and
 - **Diagnostic System Reports**: Aggregates query-type breakdowns, deterministically ranked top failures, and rule-based insights.
 - **Multi-Pipeline A/B Comparison**: Compares two pipeline configurations side-by-side on the same dataset, calculating metric deltas, failure shifts, query transitions (`improved`, `regressed`, `unchanged`), and deterministic winner/trade-off decisions.
 - **Automated Regression Analysis**: Evaluates whether a candidate pipeline degraded compared to a baseline, identifying metric regressions beyond tolerance, query regressions, critical diagnosis transitions (e.g., `PASS` $\to$ `INSUFFICIENT_CONTEXT`), and explainable regression summaries.
+- **Overall Health Profile**: Computes a deterministic 0–100 health score, categorical grade (`Excellent`, `Good`, `Fair`, `Poor`, `Critical`), operational status, empirical strengths, weaknesses, and actionable deduplicated recommendations.
 - **CLI & Typed JSON Exports**: Formatted Rich terminal reports and complete Pydantic JSON serialization.
 
 ---
@@ -328,6 +329,60 @@ RAGDiag classifies every completed query into an explainable 8-category hierarch
 6. **Incorrect Answer** (`answer_correct == False`) $\to$ `ANSWER_INCORRECT`
 7. **Latency Outlier** (`retrieval_ms > threshold`) $\to$ `LATENCY_OUTLIER`
 8. **Pass** (all checks passed) $\to$ `PASS`
+
+---
+
+## Health Profile
+
+RAGDiag includes an automated, evidence-based **Health Profile** engine answering:
+**"How healthy is this RAG system, and what are its biggest weaknesses?"**
+
+### Health Score & Bands
+The health score is a deterministic calculation bounded between `0.0` and `100.0`:
+- **Quality Signals**: Weighted across Recall@K, Precision@K, and MRR. When LLM judge evaluation is available, Answer Correctness and Groundedness are incorporated into the score.
+- **Performance**: Retrieval latency is evaluated using piecewise linear thresholds ($\le 100\text{ms} \to 1.0$, $500\text{ms} \to 0.75$, $1500\text{ms} \to 0.25$, $\ge 3000\text{ms} \to 0.0$).
+- **Controlled Penalties**: Execution crashes and severe latency outliers apply controlled, proportional penalties without double-penalizing standard retrieval misses.
+
+| Score Range | Grade | Operational Status | Interpretation |
+| :--- | :--- | :--- | :--- |
+| **90.0 – 100.0** | `Excellent` | `Healthy` | High retrieval precision, strong ranking, grounded answers, fast latency. |
+| **75.0 – 89.9** | `Good` | `Healthy` | Solid overall quality with minor non-critical areas for tuning. |
+| **60.0 – 74.9** | `Fair` | `Degraded` | Measurable bottlenecks in recall, context coverage, or latency. |
+| **40.0 – 59.9** | `Poor` | `Unhealthy` | Significant retrieval misses, ungrounded generation, or frequent timeouts. |
+| **0.0 – 39.9** | `Critical` | `Critical` | Severe pipeline crashes, near-zero recall, or pervasive failures. |
+
+### Empirical Strengths & Weaknesses
+- **Strengths**: Extracted strictly from measured data (e.g., Recall $\ge 0.85$, MRR $\ge 0.80$, Latency $\le 100\text{ms}$). Semantic strengths are only reported when judge evaluation was conducted.
+- **Weaknesses**: Identifies primary bottlenecks (low recall, poor precision, ungrounded answers, high latency, diagnostic misses).
+- **Actionable Recommendations**: Reuses the Failure $\to$ Action Mapping, generating deduplicated, prioritized actions.
+
+In Python:
+
+```python
+from ragdiag import Evaluator, load_dataset, load_pipeline
+
+pipeline = load_pipeline("examples/basic_pipeline.py")
+dataset = load_dataset("examples/basic_dataset.json")
+
+evaluator = Evaluator()
+report = evaluator.evaluate(pipeline, dataset)
+
+# Access Health Profile
+hp = report.health_profile
+print(f"Health Score: {hp.score}/100 ({hp.grade}, {hp.status})")
+
+print("\nStrengths:")
+for s in hp.strengths:
+    print(f"  ✓ {s}")
+
+print("\nWeaknesses:")
+for w in hp.weaknesses:
+    print(f"  ! {w}")
+
+print("\nRecommendations:")
+for r in hp.recommendations:
+    print(f"  → {r}")
+```
 
 ---
 

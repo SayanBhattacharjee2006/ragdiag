@@ -134,7 +134,38 @@ def render_terminal_report(
             c.print(f"* {insight}")
         c.print()
 
-    # 6. SUMMARY FOOTER
+    # 6. HEALTH PROFILE
+    hp = report.health_profile
+    c.print("[bold]HEALTH PROFILE[/bold]")
+    c.print("-" * 44)
+    if hp.status == "Healthy":
+        status_color = "green"
+    elif hp.status == "Degraded":
+        status_color = "yellow"
+    else:
+        status_color = "red"
+
+    score_str = f"{hp.score:.0f}" if hp.score.is_integer() else f"{hp.score:.1f}"
+    c.print(f"Score: [{status_color}]{score_str}/100[/{status_color}]")
+    c.print(f"Grade: [{status_color}]{hp.grade}[/{status_color}] (Status: {hp.status})")
+
+    if hp.strengths:
+        c.print("\n[bold]Strengths:[/bold]")
+        for s in hp.strengths:
+            c.print(f"  [green]✓[/green] {s}")
+
+    if hp.weaknesses:
+        c.print("\n[bold]Weaknesses:[/bold]")
+        for w in hp.weaknesses:
+            c.print(f"  [yellow]![/yellow] {w}")
+
+    if hp.recommendations:
+        c.print("\n[bold]Recommendations:[/bold]")
+        for r in hp.recommendations:
+            c.print(f"  [cyan]→[/cyan] {r}")
+    c.print()
+
+    # 7. SUMMARY FOOTER
     fail_style = "red" if report.failed_queries > 0 else "green"
     c.print(f"Completed:  [green]{report.completed_queries}[/green]")
     c.print(f"Failed:     [{fail_style}]{report.failed_queries}[/{fail_style}]")

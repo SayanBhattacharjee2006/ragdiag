@@ -1,11 +1,58 @@
 """Data models for system-level evaluation reports and diagnostic intelligence."""
 
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from ragdiag.diagnosis.models import FailureCategory, get_action_for_category
 from ragdiag.metrics.models import LatencySummary
+
+
+class HealthGrade(StrEnum):
+    """Categorical performance grades derived deterministically from health score."""
+
+    EXCELLENT = "Excellent"
+    GOOD = "Good"
+    FAIR = "Fair"
+    POOR = "Poor"
+    CRITICAL = "Critical"
+
+
+class HealthStatus(StrEnum):
+    """Operational health status indicating system stability and quality."""
+
+    HEALTHY = "Healthy"
+    DEGRADED = "Degraded"
+    UNHEALTHY = "Unhealthy"
+    CRITICAL = "Critical"
+
+
+class HealthProfile(BaseModel):
+    """System-level health assessment of a RAG pipeline evaluation run.
+
+    Attributes:
+        score: Overall deterministic health score bounded between 0.0 and 100.0.
+        grade: Categorical rating ('Excellent', 'Good', 'Fair', 'Poor', 'Critical').
+        status: High-level operational status ('Healthy', 'Degraded', 'Unhealthy', 'Critical').
+        strengths: List of empirically observed strengths based on evaluation metrics.
+        weaknesses: List of identified bottlenecks and failure modes.
+        recommendations: Actionable, deduplicated recommendations derived from failure analysis.
+    """
+
+    score: float = Field(
+        default=100.0,
+        ge=0.0,
+        le=100.0,
+        description="Overall deterministic health score bounded between 0.0 and 100.0.",
+    )
+    grade: str = Field(default="Excellent", description="Categorical rating.")
+    status: str = Field(default="Healthy", description="High-level operational health status.")
+    strengths: list[str] = Field(default_factory=list, description="Empirical strengths.")
+    weaknesses: list[str] = Field(default_factory=list, description="Identified weak areas.")
+    recommendations: list[str] = Field(
+        default_factory=list, description="Actionable recommendations."
+    )
 
 
 class TopFailure(BaseModel):
@@ -140,3 +187,7 @@ class EvaluationReport(BaseModel):
     metrics_by_query_type: dict[str, QueryTypeMetrics] = Field(default_factory=dict)
     top_failures: list[TopFailure] = Field(default_factory=list)
     overall_insights: list[str] = Field(default_factory=list)
+    health_profile: HealthProfile = Field(
+        default_factory=HealthProfile,
+        description="Overall system health assessment including score, grade, and recommendations.",
+    )
