@@ -39,7 +39,7 @@ def load_dataset(path: str | Path) -> GoldenDataset:
 
     try:
         raw_text = file_path.read_text(encoding="utf-8")
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise DatasetLoadError(f"Failed to read dataset file '{file_path}': {exc}") from exc
 
     try:

@@ -9,7 +9,7 @@ class GoldenDataset(BaseModel):
     """A validated golden evaluation dataset containing query samples.
 
     Attributes:
-        name: Name of the dataset (e.g., 'synapse_eval_v1').
+        name: Name of the dataset (e.g., 'payment_gateway_eval_v1').
         version: Version string (e.g., '1.0').
         samples: List of at least one validated `QuerySample`.
     """
