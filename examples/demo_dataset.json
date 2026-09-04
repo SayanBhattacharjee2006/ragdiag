@@ -1,0 +1,55 @@
+{
+  "name": "payment_gateway_demo_eval",
+  "version": "1.0",
+  "description": "Representative payment gateway operations evaluation dataset covering refund timelines, webhook reliability, cross-border fraud mitigation, auto-debit lifecycle, and fee settlement calculations.",
+  "samples": [
+    {
+      "id": "q001",
+      "query": "What is the standard turnaround time for card refund settlements?",
+      "expected_answer": "Standard card refund settlements are credited to the customer within 5 to 7 business days depending on the issuing bank.",
+      "relevant_chunk_ids": [
+        "doc_refund_policy_01"
+      ],
+      "query_type": "factual"
+    },
+    {
+      "id": "q002",
+      "query": "What is the webhook retry policy when an endpoint returns an HTTP 500 error?",
+      "expected_answer": "Webhooks are retried with exponential backoff up to 5 times over a 24-hour window.",
+      "relevant_chunk_ids": [
+        "doc_webhooks_04"
+      ],
+      "query_type": "factual"
+    },
+    {
+      "id": "q003",
+      "query": "Why do international transactions routed through payment gateways require two-factor authentication?",
+      "expected_answer": "International transactions require two-factor authentication to comply with cross-border fraud mitigation rules and card network security mandates.",
+      "relevant_chunk_ids": [
+        "doc_compliance_02",
+        "doc_auth_flows_09"
+      ],
+      "query_type": "reasoning"
+    },
+    {
+      "id": "q004",
+      "query": "Why was the customer's recurring auto-debit declined despite having sufficient account balance?",
+      "expected_answer": "The auto-debit was declined because the recurring e-mandate registration had expired and required explicit customer re-authorization.",
+      "relevant_chunk_ids": [
+        "doc_subscriptions_03",
+        "doc_mandates_05"
+      ],
+      "query_type": "reasoning"
+    },
+    {
+      "id": "q005",
+      "query": "What is the effective net settlement fee for an international commercial card transaction considering base fee and applicable GST?",
+      "expected_answer": "The effective settlement fee is calculated by adding the 2.5% base card fee plus an 18% GST on the fee amount, resulting in a net fee of 2.95%.",
+      "relevant_chunk_ids": [
+        "doc_pricing_tier_01",
+        "doc_tax_regulations_03"
+      ],
+      "query_type": "multi-hop"
+    }
+  ]
+}

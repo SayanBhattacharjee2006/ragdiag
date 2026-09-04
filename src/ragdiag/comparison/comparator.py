@@ -32,6 +32,27 @@ CATEGORY_SEVERITY_RANK: dict[str, int] = {
     FailureCategory.UNKNOWN.value: 2,
 }
 
+# Deterministic category quality ranking (lower is healthier/closer to full PASS):
+# Reflects pipeline stage health:
+# 0: PASS (successful)
+# 1: LATENCY_OUTLIER (all retrieval & semantic checks passed, only slow)
+# 2: WRONG_CHUNK_RANK (all required context retrieved in top-K, suboptimal rank)
+# 3: INSUFFICIENT_CONTEXT (only partial required context retrieved)
+# 4: ANSWER_INCORRECT (all context retrieved & grounded, incorrect answer)
+# 5: RETRIEVED_BUT_NOT_GROUNDED (context retrieved, but hallucinated)
+# 6: WRONG_CHUNK_RETRIEVED (total retrieval miss, 0 relevant chunks)
+# 7: UNKNOWN (execution crash / unhandled failure)
+CATEGORY_QUALITY_RANK: dict[str, int] = {
+    FailureCategory.PASS.value: 0,
+    FailureCategory.LATENCY_OUTLIER.value: 1,
+    FailureCategory.WRONG_CHUNK_RANK.value: 2,
+    FailureCategory.INSUFFICIENT_CONTEXT.value: 3,
+    FailureCategory.ANSWER_INCORRECT.value: 4,
+    FailureCategory.RETRIEVED_BUT_NOT_GROUNDED.value: 5,
+    FailureCategory.WRONG_CHUNK_RETRIEVED.value: 6,
+    FailureCategory.UNKNOWN.value: 7,
+}
+
 
 def _get_category_str(result: EvaluationResult) -> str:
     """Extract string failure category from an EvaluationResult."""
@@ -59,16 +80,20 @@ def _classify_outcome(
     """Classify the per-query outcome transition from Pipeline A to Pipeline B.
 
     Rules:
-        - Improved:
-          - B has lower severity rank than A (e.g. PASS vs failure, warning vs major).
-          - Same severity, but B has higher recall (difference > 0.001).
-          - Same category, but B is grounded/correct while A is not.
-        - Regressed:
-          - B has higher severity rank than A (e.g. failure vs PASS, major vs warning).
-          - Same severity, but B has lower recall (difference < -0.001).
-          - Same category, but B lost groundedness or correctness compared to A.
-        - Unchanged:
-          - Identical category, recall, and semantic outcomes.
+        1. Compare severity rank:
+           - Lower severity for B -> 'improved' (e.g. PASS vs failure, warning vs major).
+           - Higher severity for B -> 'regressed' (e.g. failure vs PASS, major vs warning).
+        2. If severity is equal:
+           - Compare measured recall (difference > 0.001 wins).
+           - Compare measured groundedness (if both available).
+           - Compare measured answer correctness (if both available).
+           - Compare diagnosis category:
+             - If categories are identical -> 'unchanged'.
+             - If categories differ -> compare deterministic category quality rank:
+               - Higher quality category for B -> 'improved'.
+               - Lower quality category for B -> 'regressed'.
+        3. Return 'unchanged' only when category, recall, and semantic outcomes
+           are genuinely equivalent.
     """
     cat_a = _get_category_str(res_a)
     cat_b = _get_category_str(res_b)
@@ -80,7 +105,7 @@ def _classify_outcome(
     if sev_b > sev_a:
         return "regressed"
 
-    # Same severity rank: check retrieval recall
+    # Same severity rank: check measured retrieval recall
     rec_a = _get_recall(res_a, k=k)
     rec_b = _get_recall(res_b, k=k)
     if rec_b > rec_a + 0.001:
@@ -109,6 +134,18 @@ def _classify_outcome(
     if c_a is False and c_b is True:
         return "improved"
     if c_a is True and c_b is False:
+        return "regressed"
+
+    # If identical category and all measured signals are equivalent, outcome is unchanged
+    if cat_a == cat_b:
+        return "unchanged"
+
+    # Same severity but different category: use deterministic category quality rank
+    q_rank_a = CATEGORY_QUALITY_RANK.get(cat_a, 7)
+    q_rank_b = CATEGORY_QUALITY_RANK.get(cat_b, 7)
+    if q_rank_b < q_rank_a:
+        return "improved"
+    if q_rank_b > q_rank_a:
         return "regressed"
 
     return "unchanged"

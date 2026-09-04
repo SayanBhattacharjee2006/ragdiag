@@ -331,6 +331,224 @@ class TestQueryOutcomesMatching:
         assert comp.queries_improved == 0
 
 
+class TestSameSeverityOutcomeClassification:
+    """Regression tests for same-severity diagnosis transitions."""
+
+    def test_same_severity_warning_category_change_not_unchanged(self) -> None:
+        """Test 1: WRONG_CHUNK_RANK -> INSUFFICIENT_CONTEXT is NOT unchanged."""
+        r_a = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.5},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RANK,
+                severity="warning",
+                confidence=1.0,
+                reason="Wrong rank",
+            ),
+        )
+        r_b = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.5},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.INSUFFICIENT_CONTEXT,
+                severity="warning",
+                confidence=1.0,
+                reason="Insufficient context",
+            ),
+        )
+        rep_a = build_report([r_a], dataset_name="ds", pipeline_name="A")
+        rep_b = build_report([r_b], dataset_name="ds", pipeline_name="B")
+        comp = compare_reports(rep_a, rep_b, [r_a], [r_b])
+
+        outcome = comp.query_outcomes[0].outcome
+        assert outcome != "unchanged"
+        assert outcome == "regressed"
+
+    def test_same_severity_major_category_change_not_unchanged(self) -> None:
+        """Test 2: WRONG_CHUNK_RETRIEVED -> ANSWER_INCORRECT (major -> major) is NOT unchanged."""
+        r_a = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.0},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RETRIEVED,
+                severity="major",
+                confidence=1.0,
+                reason="Miss",
+            ),
+        )
+        r_b = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.0},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.ANSWER_INCORRECT,
+                severity="major",
+                confidence=1.0,
+                reason="Wrong answer",
+            ),
+        )
+        rep_a = build_report([r_a], dataset_name="ds", pipeline_name="A")
+        rep_b = build_report([r_b], dataset_name="ds", pipeline_name="B")
+        comp = compare_reports(rep_a, rep_b, [r_a], [r_b])
+
+        outcome = comp.query_outcomes[0].outcome
+        assert outcome != "unchanged"
+        assert outcome == "improved"
+
+    def test_same_category_same_metrics_is_unchanged(self) -> None:
+        """Test 3: WRONG_CHUNK_RETRIEVED -> WRONG_CHUNK_RETRIEVED with same metrics is unchanged."""
+        r_a = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.0},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RETRIEVED,
+                severity="major",
+                confidence=1.0,
+                reason="Miss",
+            ),
+        )
+        r_b = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.0},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RETRIEVED,
+                severity="major",
+                confidence=1.0,
+                reason="Miss",
+            ),
+        )
+        rep_a = build_report([r_a], dataset_name="ds", pipeline_name="A")
+        rep_b = build_report([r_b], dataset_name="ds", pipeline_name="B")
+        comp = compare_reports(rep_a, rep_b, [r_a], [r_b])
+
+        assert comp.query_outcomes[0].outcome == "unchanged"
+
+    def test_same_category_recall_improves(self) -> None:
+        """Test 4: Same category with improved recall is classified as improved."""
+        r_a = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.0},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RETRIEVED,
+                severity="major",
+                confidence=1.0,
+                reason="Miss",
+            ),
+        )
+        r_b = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.5},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RETRIEVED,
+                severity="major",
+                confidence=1.0,
+                reason="Miss",
+            ),
+        )
+        rep_a = build_report([r_a], dataset_name="ds", pipeline_name="A")
+        rep_b = build_report([r_b], dataset_name="ds", pipeline_name="B")
+        comp = compare_reports(rep_a, rep_b, [r_a], [r_b])
+
+        assert comp.query_outcomes[0].outcome == "improved"
+
+    def test_same_category_recall_decreases(self) -> None:
+        """Test 5: Same category with decreased recall is classified as regressed."""
+        r_a = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.5},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RETRIEVED,
+                severity="major",
+                confidence=1.0,
+                reason="Miss",
+            ),
+        )
+        r_b = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.0},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RETRIEVED,
+                severity="major",
+                confidence=1.0,
+                reason="Miss",
+            ),
+        )
+        rep_a = build_report([r_a], dataset_name="ds", pipeline_name="A")
+        rep_b = build_report([r_b], dataset_name="ds", pipeline_name="B")
+        comp = compare_reports(rep_a, rep_b, [r_a], [r_b])
+
+        assert comp.query_outcomes[0].outcome == "regressed"
+
+    def test_different_same_severity_categories_measured_recall_improvement_wins(self) -> None:
+        """Test 6: Measured recall improvement overrides category priority rank."""
+        r_a = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.4},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RANK,
+                severity="warning",
+                confidence=1.0,
+                reason="Wrong rank",
+            ),
+        )
+        r_b = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.8},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.INSUFFICIENT_CONTEXT,
+                severity="warning",
+                confidence=1.0,
+                reason="Insufficient context",
+            ),
+        )
+        rep_a = build_report([r_a], dataset_name="ds", pipeline_name="A")
+        rep_b = build_report([r_b], dataset_name="ds", pipeline_name="B")
+        comp = compare_reports(rep_a, rep_b, [r_a], [r_b])
+
+        assert comp.query_outcomes[0].outcome == "improved"
+
+    def test_different_same_severity_categories_measured_recall_regression_wins(self) -> None:
+        """Test 7: Measured recall regression overrides category priority rank."""
+        r_a = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.8},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.WRONG_CHUNK_RETRIEVED,
+                severity="major",
+                confidence=1.0,
+                reason="Miss",
+            ),
+        )
+        r_b = EvaluationResult(
+            query_id="q1",
+            query="q",
+            metrics={"recall_at_5": 0.2},
+            diagnosis=DiagnosisResult(
+                category=FailureCategory.ANSWER_INCORRECT,
+                severity="major",
+                confidence=1.0,
+                reason="Wrong answer",
+            ),
+        )
+        rep_a = build_report([r_a], dataset_name="ds", pipeline_name="A")
+        rep_b = build_report([r_b], dataset_name="ds", pipeline_name="B")
+        comp = compare_reports(rep_a, rep_b, [r_a], [r_b])
+
+        assert comp.query_outcomes[0].outcome == "regressed"
+
+
 class TestWinnerAndTradeOffDetermination:
     """Tests for winner selection rules and qualitative trade-off detection."""
 
