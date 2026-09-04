@@ -206,7 +206,34 @@ def render_comparison_terminal(
         c.print("[bold]Trade-off:[/bold]")
         c.print(f"[yellow]{report.trade_off}[/yellow]\n")
 
-    # 5. QUERY OUTCOMES SUMMARY
+    # 5. REGRESSION ANALYSIS
+    c.print("[bold]REGRESSION ANALYSIS[/bold]")
+    c.print("-" * 50)
+    ra = report.regression_analysis
+    if ra.overall_regression:
+        c.print("Overall regression: [bold red]YES[/bold red]\n")
+        if ra.metric_regressions:
+            c.print("[bold]Metric regressions:[/bold]")
+            for mr in ra.metric_regressions:
+                unit_str = f" {mr.unit}" if mr.unit else ""
+                sign = "+" if mr.delta > 0 else ""
+                val_str = f"{sign}{mr.delta:.2f}{unit_str}"
+                c.print(f"  {mr.metric_name:<16} {val_str}")
+            c.print()
+        c.print(f"Queries regressed: [red]{ra.regressed_query_count}[/red]\n")
+        if ra.important_regressions:
+            c.print("[bold]Important regressions:[/bold]")
+            for imp in ra.important_regressions:
+                c.print(f"  {imp}")
+            c.print()
+    else:
+        c.print("Overall regression: [bold green]NO[/bold green]")
+        if ra.summary:
+            c.print(f"{ra.summary}\n")
+        else:
+            c.print("No meaningful regressions detected.\n")
+
+    # 6. QUERY OUTCOMES SUMMARY
     c.print("[bold]QUERY OUTCOMES[/bold]")
     c.print("-" * 50)
     c.print(f"Improved:  [green]{report.queries_improved}[/green]")

@@ -1,6 +1,14 @@
 """RAGDiag: RAG evaluation and root-cause diagnosis SDK/CLI."""
 
-from ragdiag.comparison import Comparator, ComparisonReport
+from ragdiag.comparison import (
+    Comparator,
+    ComparisonReport,
+    DiagnosisTransition,
+    MetricRegression,
+    RegressedQuery,
+    RegressionAnalysis,
+    analyze_regressions,
+)
 from ragdiag.diagnosis import (
     FAILURE_ACTIONS,
     DiagnosisEngine,
@@ -31,6 +39,7 @@ __all__ = [
     "ComparisonReport",
     "DiagnosisEngine",
     "DiagnosisResult",
+    "DiagnosisTransition",
     "EvaluationReport",
     "EvaluationResult",
     "Evaluator",
@@ -39,14 +48,18 @@ __all__ = [
     "GoldenDataset",
     "Judge",
     "JudgeResult",
+    "MetricRegression",
     "OpenAIJudge",
     "Pipeline",
     "QuerySample",
     "QueryType",
+    "RegressedQuery",
+    "RegressionAnalysis",
     "RetrievedChunk",
     "TopFailure",
     "__version__",
     "aggregate_metrics",
+    "analyze_regressions",
     "build_report",
     "get_action_for_category",
     "mean_reciprocal_rank",

@@ -8,6 +8,7 @@ from ragdiag.comparison.models import (
     QueryOutcomeComparison,
     QueryTypeDeltas,
 )
+from ragdiag.comparison.regression import analyze_regressions
 from ragdiag.diagnosis.models import FailureCategory
 from ragdiag.judges.base import Judge
 from ragdiag.models.dataset import GoldenDataset
@@ -455,6 +456,21 @@ def compare_reports(
 
     summary = " ".join(summary_parts)
 
+    regression_analysis = analyze_regressions(
+        report_a=report_a,
+        report_b=report_b,
+        metric_deltas=metric_deltas,
+        query_outcomes=query_outcomes,
+        quality_winner=quality_winner,
+        latency_winner=latency_winner,
+        overall_winner=overall_winner,
+        queries_improved=improved_cnt,
+        queries_regressed=regressed_cnt,
+        quality_tolerance=quality_tolerance,
+        latency_tolerance_ms=latency_tolerance_ms,
+        k=k,
+    )
+
     return ComparisonReport(
         dataset_name=report_a.dataset_name or report_b.dataset_name,
         dataset_version=report_a.dataset_version or report_b.dataset_version,
@@ -475,6 +491,7 @@ def compare_reports(
         winner=overall_winner,
         trade_off=trade_off,
         summary=summary,
+        regression_analysis=regression_analysis,
     )
 
 

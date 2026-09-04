@@ -9,20 +9,25 @@ from ragdiag import (
     ComparisonReport,
     DiagnosisEngine,
     DiagnosisResult,
+    DiagnosisTransition,
     EvaluationReport,
     EvaluationResult,
     FailureCategory,
     GoldenDataset,
     Judge,
     JudgeResult,
+    MetricRegression,
     OpenAIJudge,
     Pipeline,
     QuerySample,
     QueryType,
+    RegressedQuery,
+    RegressionAnalysis,
     RetrievedChunk,
     TopFailure,
     __version__,
     aggregate_metrics,
+    analyze_regressions,
     build_report,
     get_action_for_category,
     mean_reciprocal_rank,
@@ -54,6 +59,11 @@ def test_public_imports() -> None:
     assert build_report is not None
     assert Comparator is not None
     assert ComparisonReport is not None
+    assert MetricRegression is not None
+    assert DiagnosisTransition is not None
+    assert RegressedQuery is not None
+    assert RegressionAnalysis is not None
+    assert analyze_regressions is not None
     assert precision_at_k is not None
     assert recall_at_k is not None
     assert reciprocal_rank is not None

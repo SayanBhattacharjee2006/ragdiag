@@ -79,6 +79,98 @@ class QueryOutcomeComparison(BaseModel):
     outcome: Literal["improved", "regressed", "unchanged"] = "unchanged"
 
 
+class MetricRegression(BaseModel):
+    """Details of a single metric that exhibited a meaningful regression.
+
+    Attributes:
+        metric_name: Name of the regressed metric.
+        baseline_value: Metric value in Pipeline A.
+        current_value: Metric value in Pipeline B.
+        delta: Value difference (Pipeline B minus Pipeline A).
+        threshold: Configured tolerance threshold that was exceeded.
+        unit: Optional unit string (e.g. 'ms').
+    """
+
+    metric_name: str
+    baseline_value: float
+    current_value: float
+    delta: float
+    threshold: float
+    unit: str = ""
+
+
+class DiagnosisTransition(BaseModel):
+    """Summary of a specific diagnostic category transition among regressed queries.
+
+    Attributes:
+        from_category: Category in Pipeline A (baseline).
+        to_category: Category in Pipeline B (current).
+        transition: Formatted transition string (e.g. 'PASS -> INSUFFICIENT_CONTEXT').
+        count: Number of queries undergoing this transition.
+        query_ids: List of query IDs that underwent this transition.
+    """
+
+    from_category: str
+    to_category: str
+    transition: str
+    count: int = 0
+    query_ids: list[str] = Field(default_factory=list)
+
+
+class RegressedQuery(BaseModel):
+    """Detailed information on a single regressed query.
+
+    Attributes:
+        query_id: Unique query identifier.
+        baseline_diagnosis: Diagnosis in baseline pipeline (Pipeline A).
+        current_diagnosis: Diagnosis in current pipeline (Pipeline B).
+        transition: Formatted transition string (e.g. 'PASS -> INSUFFICIENT_CONTEXT').
+        recall_a: Recall@K in Pipeline A.
+        recall_b: Recall@K in Pipeline B.
+        grounded_a: Groundedness in Pipeline A (None if unjudged).
+        grounded_b: Groundedness in Pipeline B (None if unjudged).
+        answer_correct_a: Correctness in Pipeline A (None if unjudged).
+        answer_correct_b: Correctness in Pipeline B (None if unjudged).
+        reason: Plain-text explanation of why this query regressed.
+    """
+
+    query_id: str
+    baseline_diagnosis: str
+    current_diagnosis: str
+    transition: str
+    recall_a: float = 0.0
+    recall_b: float = 0.0
+    grounded_a: bool | None = None
+    grounded_b: bool | None = None
+    answer_correct_a: bool | None = None
+    answer_correct_b: bool | None = None
+    reason: str = ""
+
+
+class RegressionAnalysis(BaseModel):
+    """Structured regression analysis contrasting baseline and candidate pipeline outcomes.
+
+    Attributes:
+        overall_regression: True if a meaningful overall regression is detected.
+        metric_regressions: List of metrics exceeding negative tolerance thresholds.
+        diagnosis_regressions: List of category transitions among regressed queries.
+        increased_failures: Mapping of failure categories that saw an increase in failures.
+        regressed_queries: Detailed list of individual queries that regressed.
+        regressed_query_count: Total count of regressed queries.
+        important_regressions: Ranked list of highest-priority regression summary strings.
+        summary: Deterministic narrative summary explaining the regression verdict.
+    """
+
+    overall_regression: bool = False
+    metric_regressions: list[MetricRegression] = Field(default_factory=list)
+    diagnosis_regressions: list[DiagnosisTransition] = Field(default_factory=list)
+    increased_failures: dict[str, int] = Field(default_factory=dict)
+    regressed_queries: list[RegressedQuery] = Field(default_factory=list)
+    regressed_query_count: int = 0
+    important_regressions: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
 class ComparisonReport(BaseModel):
     """Comprehensive comparison report between two RAG pipeline configurations.
 
@@ -101,6 +193,7 @@ class ComparisonReport(BaseModel):
         overall_winner: Overall winner considering quality and latency trade-offs.
         trade_off: Qualitative trade-off statement, if applicable.
         summary: Deterministic narrative summary explaining the comparison outcome.
+        regression_analysis: Dedicated analysis identifying meaningful quality/latency regressions.
     """
 
     dataset_name: str
@@ -122,3 +215,4 @@ class ComparisonReport(BaseModel):
     winner: str = "TIE"
     trade_off: str | None = None
     summary: str = ""
+    regression_analysis: RegressionAnalysis = Field(default_factory=RegressionAnalysis)

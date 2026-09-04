@@ -45,6 +45,7 @@ RAGDiag inspects the raw evidence captured during execution across retrieval and
 - **Evidence-Based Root-Cause Diagnosis**: Classifies failures into a deterministic 8-category taxonomy without asking an unconstrained LLM to guess.
 - **Diagnostic System Reports**: Aggregates query-type breakdowns, deterministically ranked top failures, and rule-based insights.
 - **Multi-Pipeline A/B Comparison**: Compares two pipeline configurations side-by-side on the same dataset, calculating metric deltas, failure shifts, query transitions (`improved`, `regressed`, `unchanged`), and deterministic winner/trade-off decisions.
+- **Automated Regression Analysis**: Evaluates whether a candidate pipeline degraded compared to a baseline, identifying metric regressions beyond tolerance, query regressions, critical diagnosis transitions (e.g., `PASS` $\to$ `INSUFFICIENT_CONTEXT`), and explainable regression summaries.
 - **CLI & Typed JSON Exports**: Formatted Rich terminal reports and complete Pydantic JSON serialization.
 
 ---
@@ -247,6 +248,11 @@ Improved:  2
 Regressed: 0
 Unchanged: 3
 
+REGRESSION ANALYSIS
+--------------------------------------------------
+Overall regression: NO
+No meaningful regressions detected.
+
 Total comparison time: 0.16s
 ```
 
@@ -258,6 +264,41 @@ ragdiag compare \
   --pipeline-b examples/hybrid_pipeline.py \
   --dataset examples/demo_dataset.json \
   --output comparison.json
+```
+
+---
+
+## Regression Analysis
+
+RAGDiag features a dedicated regression analysis engine that answers:
+**"Did the current RAG system get worse compared with the baseline, and where?"**
+
+It evaluates both system-wide and query-level behavior against configurable tolerances ($\epsilon_{\text{quality}} = 0.02$, $\epsilon_{\text{latency}} = 10.0\text{ ms}$):
+
+- **Overall Metric Regressions**:
+  - Higher-is-better quality metrics: Recall@K, Precision@K, MRR, Groundedness, and Answer Correctness. Decreases exceeding tolerance are flagged.
+  - Lower-is-better performance metrics: Mean retrieval latency increases exceeding tolerance are flagged as performance regressions.
+- **Meaningful Thresholds**: Minor numerical noise within tolerance is filtered out and never reported as a regression.
+- **Query-Level Regressions**: Identifies exact queries whose outcomes deteriorated, preserving Comparator classification semantics.
+- **Diagnosis Transitions**: Tracks failure category shifts (e.g., `PASS` $\to$ `INSUFFICIENT_CONTEXT`, `PASS` $\to$ `ANSWER_INCORRECT`).
+- **Explainable Decision Logic**: Overall regression is `YES` if more queries regressed than improved or if quality degraded without offsetting gains. Latency trade-offs on an improved candidate pipeline are tracked without falsely marking the entire system as regressed.
+
+In Python:
+
+```python
+# Access regression analysis programmatically
+ra = comparison.regression_analysis
+print(f"Overall Regression: {ra.overall_regression}")
+print(f"Summary:            {ra.summary}")
+print(f"Regressed Queries:  {ra.regressed_query_count}")
+
+for mr in ra.metric_regressions:
+    print(
+        f"  {mr.metric_name}: {mr.delta:+.4f} (baseline={mr.baseline:.4f}, current={mr.current:.4f})"
+    )
+
+for imp in ra.important_regressions:
+    print(f"  Important: {imp}")
 ```
 
 ---
